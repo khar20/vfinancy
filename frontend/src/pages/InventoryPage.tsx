@@ -31,10 +31,15 @@ import { useNotificationStore } from '@/stores/notification';
 
 const columns: Column<InventoryItem>[] = [
   {
+    id: 'arrivalDate',
+    header: 'Fecha de ingreso',
+    sortable: true,
+    cell: (row) => <span className="tabular muted">{row.arrivalDate ? formatDate(row.arrivalDate) : '—'}</span>,
+  },
+  {
     id: 'productSku',
     header: 'SKU',
     sortable: true,
-    sticky: true,
     cell: (row) => <span className="fw-medium tabular">{row.productSku}</span>,
   },
   {
@@ -64,11 +69,6 @@ const columns: Column<InventoryItem>[] = [
     sortable: true,
     accessor: (row) => row.quantity * row.unitCost,
     cell: (row) => <span className="tabular">{formatCurrency(row.quantity * row.unitCost, row.currencyCode)}</span>,
-  },
-  {
-    id: 'arrivalDate',
-    header: 'Ingreso',
-    cell: (row) => <span className="muted">{row.arrivalDate ? formatDate(row.arrivalDate) : '—'}</span>,
   },
   {
     id: 'maxSaleDate',
@@ -360,7 +360,8 @@ export function InventoryPage() {
         onRowClick={(row) => setMovementsTarget(row)}
         rowActions={buildActions}
         rowClassName={(row) => (row.status === 'depleted' ? 'row-dimmed' : undefined)}
-        preferencesKey="inventory"
+        preferencesKey="inventory-journal"
+        defaultPreferences={{ sort: { id: 'arrivalDate', direction: 'desc' } }}
         toolbarLeft={
           <>
             <SearchInput

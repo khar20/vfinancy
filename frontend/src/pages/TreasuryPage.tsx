@@ -159,6 +159,12 @@ export function TreasuryPage() {
   const projectionColumns = useMemo<Column<CardProjectionDTO>[]>(
     () => [
       {
+        id: 'paymentDue',
+        header: 'Fecha de pago',
+        sortable: true,
+        cell: (row) => <span className="tabular muted">{formatDate(row.paymentDue)}</span>,
+      },
+      {
         id: 'card',
         header: 'Tarjeta',
         sortable: true,
@@ -176,11 +182,6 @@ export function TreasuryPage() {
             {formatDate(row.cycleStart)} – {formatDate(row.cycleEnd)}
           </span>
         ),
-      },
-      {
-        id: 'paymentDue',
-        header: 'Fecha de pago',
-        cell: (row) => <span className="tabular">{formatDate(row.paymentDue)}</span>,
       },
       {
         id: 'totalUsd',
@@ -266,6 +267,7 @@ export function TreasuryPage() {
             columns={projectionColumns}
             data={filteredProjections}
             keyField="cardId"
+            defaultPreferences={{ sort: { id: 'paymentDue', direction: 'asc' } }}
             toolbarLeft={
               <SearchInput
                 value={search}

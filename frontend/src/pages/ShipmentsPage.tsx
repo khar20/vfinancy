@@ -64,6 +64,12 @@ export function ShipmentsPage() {
   const columns = useMemo<Column<ShipmentDTO>[]>(
     () => [
       {
+        id: 'createdAt',
+        header: 'Fecha',
+        sortable: true,
+        cell: (row) => <span className="tabular muted">{formatDate(row.createdAt)}</span>,
+      },
+      {
         id: 'code',
         header: 'Código',
         sortable: true,
@@ -100,11 +106,6 @@ export function ShipmentsPage() {
         cell: (row) => (
           <Badge variant={STATUS_VARIANT[row.status]}>{SHIPMENT_STATUSES.find((s) => s.value === row.status)?.label}</Badge>
         ),
-      },
-      {
-        id: 'createdAt',
-        header: 'Fecha',
-        cell: (row) => <span className="tabular">{formatDate(row.createdAt)}</span>,
       },
       {
         id: 'actions',
@@ -158,6 +159,7 @@ export function ShipmentsPage() {
               setFormOpen(true);
             }}
             rowActions={buildActions}
+            defaultPreferences={{ sort: { id: 'createdAt', direction: 'desc' } }}
             toolbarLeft={
               <SearchInput
                 value={search}

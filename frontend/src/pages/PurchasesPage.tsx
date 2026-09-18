@@ -53,13 +53,17 @@ const CANCEL_REASONS = ['Mal estado', 'Error en el ingreso', 'Pedido duplicado',
 
 const columns: Column<Purchase>[] = [
   {
+    id: 'date',
+    header: 'Fecha de compra',
+    sortable: true,
+    cell: (row) => <span className="tabular muted">{formatDate(row.date)}</span>,
+  },
+  {
     id: 'number',
     header: 'Número',
     sortable: true,
-    sticky: true,
     cell: (row) => <span className="fw-medium tabular">{row.number}</span>,
   },
-  { id: 'date', header: 'Fecha', cell: (row) => <span className="muted">{formatDate(row.date)}</span> },
   {
     id: 'supplierName',
     header: 'Proveedor',
@@ -278,7 +282,8 @@ export function PurchasesPage() {
         onRetry={() => refetch()}
         onRowClick={(row) => setDetailTarget(row)}
         rowActions={buildActions}
-        preferencesKey="purchases"
+        preferencesKey="purchases-journal"
+        defaultPreferences={{ sort: { id: 'date', direction: 'desc' } }}
         toolbarLeft={
           <>
             <SearchInput

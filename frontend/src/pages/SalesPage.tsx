@@ -29,18 +29,18 @@ import { useNotificationStore } from '@/stores/notification';
 
 const columns: Column<Sale>[] = [
   {
+    id: 'date',
+    header: 'Fecha de venta',
+    sortable: true,
+    cell: (row) => <span className="tabular muted">{formatDate(row.date)}</span>,
+  },
+  {
     id: 'number',
     header: 'Número',
     sortable: true,
-    sticky: true,
     cell: (row) => <span className="fw-medium tabular">{row.number}</span>,
   },
   { id: 'customerName', header: 'Cliente', sortable: true, cell: (row) => row.customerName || '—' },
-  {
-    id: 'date',
-    header: 'Fecha',
-    cell: (row) => <span className="muted">{formatDate(row.date)}</span>,
-  },
   {
     id: 'status',
     header: 'Estado',
@@ -181,7 +181,8 @@ export function SalesPage() {
         onRetry={() => refetch()}
         onRowClick={(row) => setDetailTarget(row)}
         rowActions={buildActions}
-        preferencesKey="sales"
+        preferencesKey="sales-journal"
+        defaultPreferences={{ sort: { id: 'date', direction: 'desc' } }}
         toolbarLeft={
           <>
             <SearchInput
