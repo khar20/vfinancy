@@ -3,7 +3,6 @@ package bindings
 import (
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
 
 	"vfinancy/backend/internal/domain/valueobjects"
@@ -24,27 +23,31 @@ type PurchaseItemDTO struct {
 }
 
 type PurchaseOrderDTO struct {
-	ID                 string             `json:"id"`
-	Number             string             `json:"number"`
-	OrderDate          string             `json:"orderDate"`
-	ExpectedDate       string             `json:"expectedDate"`
-	ReceivedDate       string             `json:"receivedDate"`
-	ArrivalDate        string             `json:"arrivalDate"`
-	Status             string             `json:"status"`
-	CurrencyCode       string             `json:"currencyCode"`
-	ExchangeRate       float64            `json:"exchangeRate"`
-	Notes              string             `json:"notes"`
-	CustomerID         string             `json:"customerId"`
-	CreditCardID       string             `json:"creditCardId"`
-	CostUSD            float64            `json:"costUsd"`
-	SalePricePen       float64            `json:"salePricePen"`
-	RealCostPen        float64            `json:"realCostPen"`
-	RefundAmount       float64            `json:"refundAmount"`
-	Faulty             bool               `json:"faulty"`
-	FaultyReason       string             `json:"faultyReason"`
-	CancelledAt        string             `json:"cancelledAt"`
-	CancelledReason    string             `json:"cancelledReason"`
-	Items              []PurchaseItemDTO  `json:"items"`
+	ID                 string            `json:"id"`
+	Number             string            `json:"number"`
+	OrderDate          string            `json:"orderDate"`
+	ExpectedDate       string            `json:"expectedDate"`
+	ReceivedDate       string            `json:"receivedDate"`
+	ArrivalDate        string            `json:"arrivalDate"`
+	Status             string            `json:"status"`
+	CurrencyCode       string            `json:"currencyCode"`
+	PaymentMethod      string            `json:"paymentMethod"`
+	ExchangeRate       float64           `json:"exchangeRate"`
+	Notes              string            `json:"notes"`
+	CustomerID         string            `json:"customerId"`
+	SupplierID         string            `json:"supplierId"`
+	SupplierName       string            `json:"supplierName"`
+	ProductsText       string            `json:"productsText"`
+	CreditCardID       string            `json:"creditCardId"`
+	CostUSD            float64           `json:"costUsd"`
+	SalePricePen       float64           `json:"salePricePen"`
+	RealCostPen        float64           `json:"realCostPen"`
+	RefundAmount       float64           `json:"refundAmount"`
+	Faulty             bool              `json:"faulty"`
+	FaultyReason       string            `json:"faultyReason"`
+	CancelledAt        string            `json:"cancelledAt"`
+	CancelledReason    string            `json:"cancelledReason"`
+	Items              []PurchaseItemDTO `json:"items"`
 }
 
 func purchaseDTO(po *purchasing.PurchaseOrder) PurchaseOrderDTO {
@@ -72,9 +75,13 @@ func purchaseDTO(po *purchasing.PurchaseOrder) PurchaseOrderDTO {
 		ArrivalDate:        dayStrPtr(po.ArrivalDate),
 		Status:             string(po.Status),
 		CurrencyCode:       po.CurrencyCode,
+		PaymentMethod:      string(po.PaymentMethod),
 		ExchangeRate:       po.ExchangeRate.Decimal().InexactFloat64(),
 		Notes:              po.Notes,
 		CustomerID:         uuidPtrString(po.CustomerID),
+		SupplierID:         uuidPtrString(po.SupplierID),
+		SupplierName:       po.SupplierName,
+		ProductsText:       po.ProductsText,
 		CreditCardID:       uuidPtrString(po.CreditCardID),
 		CostUSD:            moneyFloat(po.CostUSD),
 		SalePricePen:       moneyFloat(po.SalePricePen),
@@ -93,19 +100,14 @@ type PurchaseFilterRequest struct {
 	Search       string `json:"search"`
 	Status       string `json:"status"`
 	CreditCardID string `json:"creditCardId"`
-	ImportLotID  string `json:"importLotId"`
 	From         string `json:"from"`
 	To           string `json:"to"`
 }
 
-// ListPurchaseOrders supports the advanced filters drawer (lot, date
+// ListPurchaseOrders supports the advanced filters drawer (date
 // range, credit card).
 func (a *App) ListPurchaseOrders(req PurchaseFilterRequest) (PageResult, error) {
 	cardID, err := parseOptionalUUID(req.CreditCardID)
-	if err != nil {
-		return PageResult{}, err
-	}
-	lotID, err := parseOptionalUUID(req.ImportLotID)
 	if err != nil {
 		return PageResult{}, err
 	}
@@ -121,7 +123,6 @@ func (a *App) ListPurchaseOrders(req PurchaseFilterRequest) (PageResult, error) 
 		Search:       req.Search,
 		Status:       req.Status,
 		CreditCardID: cardID,
-		ImportLotID:  lotID,
 		From:         from,
 		To:           to,
 		PageRequest:  req.toPageRequest(),
@@ -158,14 +159,16 @@ type PurchaseItemRequest struct {
 }
 
 type CreatePurchaseRequest struct {
-	Number       string                `json:"number"`
-	CustomerID   string                `json:"customerId"`
-	CreditCardID string                `json:"creditCardId"`
-	ExchangeRate float64               `json:"exchangeRate"`
-	OrderDate    string                `json:"orderDate"`
-	ExpectedDate string                `json:"expectedDate"`
-	Notes        string                `json:"notes"`
-	Items        []PurchaseItemRequest `json:"items"`
+	Number        string                `json:"number"`
+	CustomerID    string                `json:"customerId"`
+	SupplierID    string                `json:"supplierId"`
+	PaymentMethod string                `json:"paymentMethod"`
+	CreditCardID  string                `json:"creditCardId"`
+	ExchangeRate  float64               `json:"exchangeRate"`
+	OrderDate     string                `json:"orderDate"`
+	ExpectedDate  string                `json:"expectedDate"`
+	Notes         string                `json:"notes"`
+	Items         []PurchaseItemRequest `json:"items"`
 }
 
 // CreatePurchase registers a USD order (general or for a client) tied
@@ -188,6 +191,10 @@ func (a *App) purchaseInput(req CreatePurchaseRequest) (purchasing.CreateInput, 
 		return purchasing.CreateInput{}, err
 	}
 	customerID, err := parseOptionalUUID(req.CustomerID)
+	if err != nil {
+		return purchasing.CreateInput{}, err
+	}
+	supplierID, err := parseOptionalUUID(req.SupplierID)
 	if err != nil {
 		return purchasing.CreateInput{}, err
 	}
@@ -234,14 +241,16 @@ func (a *App) purchaseInput(req CreatePurchaseRequest) (purchasing.CreateInput, 
 		})
 	}
 	return purchasing.CreateInput{
-		Number:       req.Number,
-		CustomerID:   customerID,
-		CreditCardID: cardID,
-		ExchangeRate: rate,
-		OrderDate:    orderDate,
-		ExpectedDate: expected,
-		Notes:        req.Notes,
-		Items:        items,
+		Number:        req.Number,
+		CustomerID:    customerID,
+		SupplierID:    supplierID,
+		PaymentMethod: purchasing.PurchasePaymentMethod(req.PaymentMethod),
+		CreditCardID:  cardID,
+		ExchangeRate:  rate,
+		OrderDate:     orderDate,
+		ExpectedDate:  expected,
+		Notes:         req.Notes,
+		Items:         items,
 	}, nil
 }
 
@@ -297,147 +306,17 @@ func (a *App) MarkPurchaseFaulty(req CancelPurchaseRequest) (PurchaseOrderDTO, e
 	return purchaseDTO(po), nil
 }
 
-type ImportLotDTO struct {
-	ID             string             `json:"id"`
-	Code           string             `json:"code"`
-	Description    string             `json:"description"`
-	Status         string             `json:"status"`
-	TotalUSD       float64            `json:"totalUsd"`
-	OverLimit      bool               `json:"overLimit"`
-	CustomsLimitUSD float64           `json:"customsLimitUsd"`
-	Members        []PurchaseOrderDTO `json:"members"`
-}
-
-// CreateImportLot groups orders for customs control. A total above the
-// customs cap returns the lot with OverLimit=true (non-blocking
-// warning; the UI asks for explicit confirmation).
-func (a *App) CreateImportLot(description string, purchaseIDs []string) (ImportLotDTO, error) {
-	ids, err := parseUUIDs(purchaseIDs)
+// UpdatePurchaseNumber corrects the number of an order.
+func (a *App) UpdatePurchaseNumber(id string, number string) (PurchaseOrderDTO, error) {
+	oid, err := parseUUID(id)
 	if err != nil {
-		return ImportLotDTO{}, err
+		return PurchaseOrderDTO{}, err
 	}
-	lot, total, over, err := a.purchasingSvc.CreateImportLot(a.Context(), purchasing.ImportLotInput{Description: description, PurchaseIDs: ids})
+	po, err := a.purchasingSvc.UpdateNumber(a.Context(), oid, number)
 	if err != nil {
-		return ImportLotDTO{}, err
+		return PurchaseOrderDTO{}, err
 	}
-	return lotDTO(a, lot, total, over), nil
-}
-
-// AddToImportLot adds orders to an existing lot and re-evaluates the
-// customs cap.
-func (a *App) AddToImportLot(lotID string, purchaseIDs []string) (ImportLotDTO, error) {
-	lid, err := parseUUID(lotID)
-	if err != nil {
-		return ImportLotDTO{}, err
-	}
-	ids, err := parseUUIDs(purchaseIDs)
-	if err != nil {
-		return ImportLotDTO{}, err
-	}
-	total, over, err := a.purchasingSvc.AddToImportLot(a.Context(), lid, ids)
-	if err != nil {
-		return ImportLotDTO{}, err
-	}
-	lot, _, _, err := a.purchasingSvc.GetImportLot(a.Context(), lid)
-	if err != nil {
-		return ImportLotDTO{}, err
-	}
-	return lotDTO(a, lot, total, over), nil
-}
-
-// RemoveFromImportLot detaches an order from its lot.
-func (a *App) RemoveFromImportLot(lotID, purchaseID string) (ImportLotDTO, error) {
-	lid, err := parseUUID(lotID)
-	if err != nil {
-		return ImportLotDTO{}, err
-	}
-	pid, err := parseUUID(purchaseID)
-	if err != nil {
-		return ImportLotDTO{}, err
-	}
-	total, err := a.purchasingSvc.RemoveFromImportLot(a.Context(), lid, pid)
-	if err != nil {
-		return ImportLotDTO{}, err
-	}
-	lot, _, over, err := a.purchasingSvc.GetImportLot(a.Context(), lid)
-	if err != nil {
-		return ImportLotDTO{}, err
-	}
-	return lotDTO(a, lot, total, over), nil
-}
-
-// CloseImportLot marks a customs lot as closed.
-func (a *App) CloseImportLot(id string) (ImportLotDTO, error) {
-	lid, err := parseUUID(id)
-	if err != nil {
-		return ImportLotDTO{}, err
-	}
-	if _, err := a.purchasingSvc.CloseImportLot(a.Context(), lid); err != nil {
-		return ImportLotDTO{}, err
-	}
-	lot, total, over, err := a.purchasingSvc.GetImportLot(a.Context(), lid)
-	if err != nil {
-		return ImportLotDTO{}, err
-	}
-	return lotDTO(a, lot, total, over), nil
-}
-
-// ListImportLots returns the import groups.
-func (a *App) ListImportLots(req PaginationRequest, search string) (PageResult, error) {
-	page, err := a.purchasingSvc.ListImportLots(a.Context(), purchasing.ImportLotFilter{Search: search, PageRequest: req.toPageRequest()})
-	if err != nil {
-		return PageResult{}, err
-	}
-	items := make([]ImportLotDTO, 0, len(page.Items))
-	for _, lot := range page.Items {
-		_, total, over, err := a.purchasingSvc.GetImportLot(a.Context(), lot.ID)
-		if err != nil {
-			return PageResult{}, err
-		}
-		items = append(items, lotDTO(a, lot, total, over))
-	}
-	return PageResult{Items: items, Total: page.Total, Page: req.Page, PageSize: req.PageSize}, nil
-}
-
-// ListLotMembers returns the orders grouped in a lot.
-func (a *App) ListLotMembers(lotID string) ([]PurchaseOrderDTO, error) {
-	lid, err := parseUUID(lotID)
-	if err != nil {
-		return nil, err
-	}
-	members, err := a.purchasingSvc.ListLotMembers(a.Context(), lid)
-	if err != nil {
-		return nil, err
-	}
-	items := make([]PurchaseOrderDTO, 0, len(members))
-	for _, po := range members {
-		items = append(items, purchaseDTO(po))
-	}
-	return items, nil
-}
-
-func lotDTO(a *App, lot *purchasing.ImportLot, total valueobjects.Money, over bool) ImportLotDTO {
-	return ImportLotDTO{
-		ID:              lot.ID.String(),
-		Code:            lot.Code,
-		Description:     lot.Description,
-		Status:          string(lot.Status),
-		TotalUSD:        moneyFloat(total),
-		OverLimit:       over,
-		CustomsLimitUSD: a.customsLimit(a.Context()),
-	}
-}
-
-func parseUUIDs(ids []string) ([]uuid.UUID, error) {
-	out := make([]uuid.UUID, 0, len(ids))
-	for _, s := range ids {
-		id, err := parseUUID(s)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, id)
-	}
-	return out, nil
+	return purchaseDTO(po), nil
 }
 
 func rated(f float64) decimal.Decimal {

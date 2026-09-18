@@ -94,7 +94,7 @@ func (a *App) CreateProduct(req SaveProductRequest) (ProductDTO, error) {
 	return productDTO(p), nil
 }
 
-// UpdateProduct edits description and/or prices (nil = keep).
+// UpdateProduct edits SKU, description and/or prices (empty/nil = keep).
 func (a *App) UpdateProduct(req SaveProductRequest) (ProductDTO, error) {
 	pid, err := parseUUID(req.ID)
 	if err != nil {
@@ -108,7 +108,7 @@ func (a *App) UpdateProduct(req SaveProductRequest) (ProductDTO, error) {
 	if err != nil {
 		return ProductDTO{}, err
 	}
-	p, err := a.productsSvc.Update(a.Context(), product.UpdateInput{ID: pid, Description: req.Description, UnitCode: &req.UnitCode, CostUSD: cost, SalePrice: price})
+	p, err := a.productsSvc.Update(a.Context(), product.UpdateInput{ID: pid, SKU: req.SKU, Description: req.Description, UnitCode: &req.UnitCode, CostUSD: cost, SalePrice: price})
 	if err != nil {
 		return ProductDTO{}, err
 	}

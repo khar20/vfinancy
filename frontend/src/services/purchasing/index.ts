@@ -18,14 +18,13 @@ interface PurchaseQuery {
   search?: string;
   status?: string;
   creditCardId?: string;
-  importLotId?: string;
   from?: string;
   to?: string;
   page?: number;
   pageSize?: number;
 }
 
-interface Purchase extends PurchaseOrderDTO {
+export interface Purchase extends PurchaseOrderDTO {
   date: string;
 }
 
@@ -46,6 +45,8 @@ function toItems(items: PurchaseLineInput[]): PurchaseItemRequest[] {
 export interface PurchaseCreateInput {
   number?: string;
   customerId?: string;
+  supplierId: string;
+  paymentMethod: 'card' | 'cash' | 'digital_wallet';
   creditCardId: string;
   orderDate: string;
   expectedDate?: string;
@@ -63,7 +64,6 @@ export const purchasingService = {
         search: q.search ?? '',
         status: q.status ?? '',
         creditCardId: q.creditCardId ?? '',
-        importLotId: q.importLotId ?? '',
         from: q.from ?? '',
         to: q.to ?? '',
       }),
@@ -79,6 +79,8 @@ export const purchasingService = {
     const req: CreatePurchaseRequest = {
       number: input.number ?? '',
       customerId: input.customerId ?? '',
+      supplierId: input.supplierId,
+      paymentMethod: input.paymentMethod,
       creditCardId: input.creditCardId,
       exchangeRate: input.exchangeRate ?? 1,
       orderDate: input.orderDate,
@@ -100,5 +102,9 @@ export const purchasingService = {
 
   async markFaulty(id: string, reason: string): Promise<Purchase> {
     return toPurchase(await wailsClient.markPurchaseFaulty({ id, reason }));
+  },
+
+  async updateNumber(id: string, number: string): Promise<Purchase> {
+    return toPurchase(await wailsClient.updatePurchaseNumber(id, number));
   },
 };

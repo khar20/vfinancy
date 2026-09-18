@@ -3,7 +3,7 @@ import { inventoryService } from '@/services/inventory';
 import { queryKeys } from '@/services/queryKeys';
 import type { ReceiveStockRequest } from '@/services/wails-types';
 
-export function useInventory(query?: { search?: string }) {
+export function useInventory(query?: { search?: string; status?: string }) {
   return useQuery({
     queryKey: queryKeys.inventory.list(query ?? null),
     queryFn: () => inventoryService.list(query),

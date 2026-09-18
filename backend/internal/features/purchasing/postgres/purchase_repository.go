@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -25,11 +26,28 @@ func NewPurchaseRepository(db *sql.DB) *purchaseRepository {
 
 const purchaseColumns = `
 	id, number, order_date, expected_date, received_date, arrival_date,
-	status, currency_code, exchange_rate, notes,
-	customer_id, credit_card_id,
+	status, currency_code, payment_method, exchange_rate, notes,
+	customer_id, supplier_id, credit_card_id,
 	cost_usd, sale_price_pen, real_cost_pen, refund_amount,
 	faulty, faulty_reason, cancelled_at, cancelled_reason,
 	created_at, updated_at, deleted_at
+`
+
+// purchaseListSelect extends the base columns with the supplier name
+// via a LEFT JOIN; both single-order and list queries go through it so
+// the "Proveedor" column resolves even for soft-deleted suppliers.
+const purchaseListSelect = `
+	purchase_orders.id, purchase_orders.number, purchase_orders.order_date,
+	purchase_orders.expected_date, purchase_orders.received_date, purchase_orders.arrival_date,
+	purchase_orders.status, purchase_orders.currency_code, purchase_orders.payment_method,
+	purchase_orders.exchange_rate, purchase_orders.notes,
+	purchase_orders.customer_id, purchase_orders.supplier_id, purchase_orders.credit_card_id,
+	purchase_orders.cost_usd, purchase_orders.sale_price_pen, purchase_orders.real_cost_pen,
+	purchase_orders.refund_amount,
+	purchase_orders.faulty, purchase_orders.faulty_reason, purchase_orders.cancelled_at,
+	purchase_orders.cancelled_reason,
+	purchase_orders.created_at, purchase_orders.updated_at, purchase_orders.deleted_at,
+	COALESCE(s.name, '')
 `
 
 const purchaseItemColumns = `
@@ -42,19 +60,20 @@ const purchaseItemColumns = `
 func (r *purchaseRepository) Create(ctx context.Context, po *purchasing.PurchaseOrder, items []*purchasing.PurchaseOrderItem) error {
 	const q = `INSERT INTO purchase_orders (
 		id, number, order_date, expected_date, received_date, arrival_date,
-		status, currency_code, exchange_rate, notes,
-		customer_id, credit_card_id,
+		status, currency_code, payment_method, exchange_rate, notes,
+		customer_id, supplier_id, credit_card_id,
 		cost_usd, sale_price_pen, real_cost_pen, refund_amount,
 		faulty, faulty_reason, cancelled_at, cancelled_reason,
 		created_at, updated_at
-	) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)`
+	) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)`
 	_, err := persistence.Q(ctx, r.q).ExecContext(ctx, q,
 		po.ID, po.Number, po.OrderDate,
 		persistence.NullIfZeroTime(po.ExpectedDate), persistence.NullIfZeroTime(po.ReceivedDate),
 		persistence.NullIfZeroTime(po.ArrivalDate),
-		po.Status.String(), po.CurrencyCode, po.ExchangeRate.String(),
+		po.Status.String(), po.CurrencyCode, string(po.PaymentMethod), po.ExchangeRate.String(),
 		persistence.NullIfEmpty(po.Notes),
-		persistence.NullIfEmptyUUID(po.CustomerID), persistence.NullIfEmptyUUID(po.CreditCardID),
+		persistence.NullIfEmptyUUID(po.CustomerID), persistence.NullIfEmptyUUID(po.SupplierID),
+		persistence.NullIfEmptyUUID(po.CreditCardID),
 		po.CostUSD.String(), po.SalePricePen.String(), po.RealCostPen.String(), po.RefundAmount.String(),
 		po.Faulty, persistence.NullIfEmpty(po.FaultyReason),
 		persistence.NullIfZeroTime(po.CancelledAt), persistence.NullIfEmpty(po.CancelledReason),
@@ -94,18 +113,21 @@ func (r *purchaseRepository) insertItem(ctx context.Context, purchaseID uuid.UUI
 // Update persists the mutable order fields.
 func (r *purchaseRepository) Update(ctx context.Context, po *purchasing.PurchaseOrder) error {
 	const q = `UPDATE purchase_orders SET
-		expected_date = $1, received_date = $2, arrival_date = $3, status = $4,
-		notes = $5, customer_id = $6, credit_card_id = $7,
-		cost_usd = $8, sale_price_pen = $9, real_cost_pen = $10,
-		refund_amount = $11,
-		faulty = $12, faulty_reason = $13, cancelled_at = $14, cancelled_reason = $15,
-		updated_at = $16
-	 WHERE id = $17 AND deleted_at IS NULL`
+		number = $1, expected_date = $2, received_date = $3, arrival_date = $4,
+		status = $5, payment_method = $6, notes = $7,
+		customer_id = $8, supplier_id = $9, credit_card_id = $10,
+		cost_usd = $11, sale_price_pen = $12, real_cost_pen = $13,
+		refund_amount = $14,
+		faulty = $15, faulty_reason = $16, cancelled_at = $17, cancelled_reason = $18,
+		updated_at = $19
+	 WHERE id = $20 AND deleted_at IS NULL`
 	res, err := persistence.Q(ctx, r.q).ExecContext(ctx, q,
+		po.Number,
 		persistence.NullIfZeroTime(po.ExpectedDate), persistence.NullIfZeroTime(po.ReceivedDate),
 		persistence.NullIfZeroTime(po.ArrivalDate), po.Status.String(),
-		persistence.NullIfEmpty(po.Notes),
-		persistence.NullIfEmptyUUID(po.CustomerID), persistence.NullIfEmptyUUID(po.CreditCardID),
+		string(po.PaymentMethod), persistence.NullIfEmpty(po.Notes),
+		persistence.NullIfEmptyUUID(po.CustomerID), persistence.NullIfEmptyUUID(po.SupplierID),
+		persistence.NullIfEmptyUUID(po.CreditCardID),
 		po.CostUSD.String(), po.SalePricePen.String(), po.RealCostPen.String(), po.RefundAmount.String(),
 		po.Faulty, persistence.NullIfEmpty(po.FaultyReason),
 		persistence.NullIfZeroTime(po.CancelledAt), persistence.NullIfEmpty(po.CancelledReason),
@@ -139,7 +161,10 @@ func (r *purchaseRepository) SoftDelete(ctx context.Context, id uuid.UUID) error
 
 // GetByID loads a single order without its items.
 func (r *purchaseRepository) GetByID(ctx context.Context, id uuid.UUID) (*purchasing.PurchaseOrder, error) {
-	q := `SELECT ` + purchaseColumns + ` FROM purchase_orders WHERE id = $1 AND deleted_at IS NULL`
+	q := `SELECT ` + purchaseListSelect + `
+		FROM purchase_orders
+		LEFT JOIN suppliers s ON s.id = purchase_orders.supplier_id
+		WHERE purchase_orders.id = $1 AND purchase_orders.deleted_at IS NULL`
 	row := persistence.Q(ctx, r.q).QueryRowContext(ctx, q, id)
 	return scanPurchaseOrder(row)
 }
@@ -194,53 +219,48 @@ func (r *purchaseRepository) List(ctx context.Context, filter purchasing.Purchas
 	var clauses []string
 	var args []any
 	if !filter.IncludeDeleted {
-		clauses = append(clauses, "deleted_at IS NULL")
+		clauses = append(clauses, "purchase_orders.deleted_at IS NULL")
 	}
 	if filter.Search != "" {
-		clauses = append(clauses, fmt.Sprintf("number LIKE $%d", len(args)+1))
+		clauses = append(clauses, fmt.Sprintf("purchase_orders.number LIKE $%d", len(args)+1))
 		args = append(args, "%"+filter.Search+"%")
 	}
 	if filter.Status != "" {
-		clauses = append(clauses, fmt.Sprintf("status = $%d", len(args)+1))
+		clauses = append(clauses, fmt.Sprintf("purchase_orders.status = $%d", len(args)+1))
 		args = append(args, filter.Status)
 	}
 	if filter.CreditCardID != nil {
-		clauses = append(clauses, fmt.Sprintf("credit_card_id = $%d", len(args)+1))
+		clauses = append(clauses, fmt.Sprintf("purchase_orders.credit_card_id = $%d", len(args)+1))
 		args = append(args, *filter.CreditCardID)
 	}
-	if filter.ImportLotID != nil {
-		clauses = append(clauses, fmt.Sprintf(
-			"EXISTS (SELECT 1 FROM import_lot_purchase_orders m WHERE m.purchase_order_id = purchase_orders.id AND m.import_lot_id = $%d)",
-			len(args)+1))
-		args = append(args, *filter.ImportLotID)
-	}
 	if filter.From != nil {
-		clauses = append(clauses, fmt.Sprintf("order_date >= $%d", len(args)+1))
+		clauses = append(clauses, fmt.Sprintf("purchase_orders.order_date >= $%d", len(args)+1))
 		args = append(args, *filter.From)
 	}
 	if filter.To != nil {
-		clauses = append(clauses, fmt.Sprintf("order_date <= $%d", len(args)+1))
+		clauses = append(clauses, fmt.Sprintf("purchase_orders.order_date <= $%d", len(args)+1))
 		args = append(args, *filter.To)
 	}
-	if len(clauses) == 0 {
-		clauses = append(clauses, "1 = 1")
-	}
 	limit, offset := persistence.LimitOffset(filter.PageRequest, 25, 200)
-	where := persistence.JoinClauses(clauses)
+	where := ""
+	if len(clauses) > 0 {
+		where = " WHERE " + persistence.JoinClauses(clauses)
+	}
 
 	var total int
 	if err := persistence.Q(ctx, r.q).QueryRowContext(ctx,
-		"SELECT count(*) FROM purchase_orders WHERE "+where, args...).Scan(&total); err != nil {
+		"SELECT count(*) FROM purchase_orders"+where, args...).Scan(&total); err != nil {
 		return repositories.Page[*purchasing.PurchaseOrder]{}, persistence.Translate(err)
 	}
 
 	limitPos := len(args) + 1
 	offsetPos := len(args) + 2
 	args = append(args, limit, offset)
-	rows, err := persistence.Q(ctx, r.q).QueryContext(ctx,
-		fmt.Sprintf("SELECT %s FROM purchase_orders WHERE %s ORDER BY order_date DESC, number DESC LIMIT $%d OFFSET $%d",
-			purchaseColumns, where, limitPos, offsetPos),
-		args...)
+	query := `SELECT ` + purchaseListSelect + `
+		FROM purchase_orders
+		LEFT JOIN suppliers s ON s.id = purchase_orders.supplier_id` + where +
+		fmt.Sprintf(` ORDER BY purchase_orders.order_date DESC, purchase_orders.number DESC LIMIT $%d OFFSET $%d`, limitPos, offsetPos)
+	rows, err := persistence.Q(ctx, r.q).QueryContext(ctx, query, args...)
 	if err != nil {
 		return repositories.Page[*purchasing.PurchaseOrder]{}, persistence.Translate(err)
 	}
@@ -258,13 +278,50 @@ func (r *purchaseRepository) List(ctx context.Context, filter purchasing.Purchas
 	return repositories.Page[*purchasing.PurchaseOrder]{Items: out, Total: total, Limit: limit, Offset: offset}, nil
 }
 
+// ListLineSummaries returns the line descriptions of the given orders,
+// keyed by order id and ordered by line number, for the list's
+// products column.
+func (r *purchaseRepository) ListLineSummaries(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID][]purchasing.PurchaseLineSummary, error) {
+	out := make(map[uuid.UUID][]purchasing.PurchaseLineSummary, len(ids))
+	if len(ids) == 0 {
+		return out, nil
+	}
+	placeholders := make([]string, len(ids))
+	args := make([]any, len(ids))
+	for i, id := range ids {
+		placeholders[i] = fmt.Sprintf("$%d", i+1)
+		args[i] = id
+	}
+	rows, err := persistence.Q(ctx, r.q).QueryContext(ctx,
+		`SELECT purchase_order_id, description, quantity_ordered
+		 FROM purchase_order_items
+		 WHERE purchase_order_id IN (`+strings.Join(placeholders, ",")+`)
+		 ORDER BY purchase_order_id, line_number`,
+		args...)
+	if err != nil {
+		return nil, persistence.Translate(err)
+	}
+	if err := persistence.ScanRows(rows, func(row *sql.Rows) error {
+		var orderID uuid.UUID
+		var name, qty string
+		if err := row.Scan(&orderID, &name, &qty); err != nil {
+			return persistence.Translate(err)
+		}
+		out[orderID] = append(out[orderID], purchasing.PurchaseLineSummary{Quantity: qty, Name: name})
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 type purchaseScan struct {
-	notes, faultyReason, cancelledReason                            sql.NullString
-	expectedDate, receivedDate, arrivalDate, cancelledAt, deletedAt sql.NullTime
-	customerID, creditCardID                                        sql.NullString
-	status, currencyCode, exchangeRate                      string
-	costUSD, salePricePen, realCostPen, refundAmount                string
-	faulty                                                          bool
+	notes, faultyReason, cancelledReason                              sql.NullString
+	expectedDate, receivedDate, arrivalDate, cancelledAt, deletedAt   sql.NullTime
+	customerID, supplierID, creditCardID                              sql.NullString
+	status, currencyCode, paymentMethod, exchangeRate, supplierName   string
+	costUSD, salePricePen, realCostPen, refundAmount                  string
+	faulty                                                            bool
 }
 
 func scanPurchaseOrder(row *sql.Row) (*purchasing.PurchaseOrder, error) {
@@ -273,11 +330,11 @@ func scanPurchaseOrder(row *sql.Row) (*purchasing.PurchaseOrder, error) {
 	if err := persistence.ScanRow(row,
 		&p.ID, &p.Number, &p.OrderDate,
 		&s.expectedDate, &s.receivedDate, &s.arrivalDate,
-		&s.status, &s.currencyCode, &s.exchangeRate, &s.notes,
-		&s.customerID, &s.creditCardID,
+		&s.status, &s.currencyCode, &s.paymentMethod, &s.exchangeRate, &s.notes,
+		&s.customerID, &s.supplierID, &s.creditCardID,
 		&s.costUSD, &s.salePricePen, &s.realCostPen, &s.refundAmount,
 		&s.faulty, &s.faultyReason, &s.cancelledAt, &s.cancelledReason,
-		&p.CreatedAt, &p.UpdatedAt, &s.deletedAt,
+		&p.CreatedAt, &p.UpdatedAt, &s.deletedAt, &s.supplierName,
 	); err != nil {
 		return nil, err
 	}
@@ -293,11 +350,11 @@ func scanPurchaseOrderFromRows(rows *sql.Rows) (*purchasing.PurchaseOrder, error
 	if err := rows.Scan(
 		&p.ID, &p.Number, &p.OrderDate,
 		&s.expectedDate, &s.receivedDate, &s.arrivalDate,
-		&s.status, &s.currencyCode, &s.exchangeRate, &s.notes,
-		&s.customerID, &s.creditCardID,
+		&s.status, &s.currencyCode, &s.paymentMethod, &s.exchangeRate, &s.notes,
+		&s.customerID, &s.supplierID, &s.creditCardID,
 		&s.costUSD, &s.salePricePen, &s.realCostPen, &s.refundAmount,
 		&s.faulty, &s.faultyReason, &s.cancelledAt, &s.cancelledReason,
-		&p.CreatedAt, &p.UpdatedAt, &s.deletedAt,
+		&p.CreatedAt, &p.UpdatedAt, &s.deletedAt, &s.supplierName,
 	); err != nil {
 		return nil, persistence.Translate(err)
 	}
@@ -311,6 +368,10 @@ func decodePurchaseOrder(p *purchasing.PurchaseOrder, s *purchaseScan) error {
 	if s.customerID.Valid {
 		id := persistence.ParseUUID(s.customerID.String)
 		p.CustomerID = &id
+	}
+	if s.supplierID.Valid {
+		id := persistence.ParseUUID(s.supplierID.String)
+		p.SupplierID = &id
 	}
 	if s.creditCardID.Valid {
 		id := persistence.ParseUUID(s.creditCardID.String)
@@ -346,6 +407,8 @@ func decodePurchaseOrder(p *purchasing.PurchaseOrder, s *purchaseScan) error {
 		p.CancelledReason = s.cancelledReason.String
 	}
 	p.Status = persistence.ParsePurchaseStatus(s.status)
+	p.PaymentMethod = purchasing.PurchasePaymentMethod(s.paymentMethod)
+	p.SupplierName = s.supplierName
 	p.Faulty = s.faulty
 	p.CurrencyCode = s.currencyCode
 	var err error

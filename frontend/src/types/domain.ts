@@ -32,24 +32,6 @@ export interface Sale {
   balance: number;
 }
 
-export interface Purchase {
-  id: string;
-  number: string;
-  date: string;
-  status: string;
-  currencyCode: string;
-  customerId: string;
-  creditCardId: string;
-  costUsd: number;
-  salePricePen: number;
-  realCostPen: number;
-  refundAmount: number;
-  faulty: boolean;
-  faultyReason: string;
-  arrivalDate: string;
-  notes: string;
-}
-
 export interface ChartPoint {
   label: string;
   value: number;

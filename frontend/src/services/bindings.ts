@@ -14,6 +14,7 @@ import type {
   SaveCustomerRequest,
   SaveProductRequest,
   SaveShipmentRequest,
+  SaveSupplierRequest,
   SalePaymentRequest,
   SetLocalPasswordRequest,
   SetSecurityQuestionRequest,
@@ -161,6 +162,27 @@ export const wailsClient = {
     return b.GetCustomerByDocument(docType, docNumber);
   },
 
+  async listSuppliers(req: PaginationRequest, search: string) {
+    const b = await resolveBindings();
+    return b.ListSuppliers(req, search);
+  },
+  async supplierOptions() {
+    const b = await resolveBindings();
+    return b.SupplierOptions();
+  },
+  async createSupplier(req: SaveSupplierRequest) {
+    const b = await resolveBindings();
+    return b.CreateSupplier(req);
+  },
+  async updateSupplier(req: SaveSupplierRequest) {
+    const b = await resolveBindings();
+    return b.UpdateSupplier(req);
+  },
+  async removeSupplier(id: string) {
+    const b = await resolveBindings();
+    return b.RemoveSupplier(id);
+  },
+
   async listProducts(req: PaginationRequest, search: string) {
     const b = await resolveBindings();
     return b.ListProducts(req, search);
@@ -194,9 +216,9 @@ export const wailsClient = {
     return b.GetProductStock(id);
   },
 
-  async listInventoryBatches(req: PaginationRequest, onlyClearance: boolean, search: string) {
+  async listInventoryBatches(req: PaginationRequest, status: string, search: string) {
     const b = await resolveBindings();
-    return b.ListInventoryBatches(req, onlyClearance, search);
+    return b.ListInventoryBatches(req, status, search);
   },
   async listInventoryMovements(req: PaginationRequest, productId: string) {
     const b = await resolveBindings();
@@ -272,29 +294,9 @@ export const wailsClient = {
     const b = await resolveBindings();
     return b.MarkPurchaseFaulty(req);
   },
-  async createImportLot(description: string, purchaseIds: string[]) {
+  async updatePurchaseNumber(id: string, number: string) {
     const b = await resolveBindings();
-    return b.CreateImportLot(description, purchaseIds);
-  },
-  async addToImportLot(lotId: string, purchaseIds: string[]) {
-    const b = await resolveBindings();
-    return b.AddToImportLot(lotId, purchaseIds);
-  },
-  async removeFromImportLot(lotId: string, purchaseId: string) {
-    const b = await resolveBindings();
-    return b.RemoveFromImportLot(lotId, purchaseId);
-  },
-  async closeImportLot(id: string) {
-    const b = await resolveBindings();
-    return b.CloseImportLot(id);
-  },
-  async listImportLots(req: PaginationRequest, search: string) {
-    const b = await resolveBindings();
-    return b.ListImportLots(req, search);
-  },
-  async listLotMembers(lotId: string) {
-    const b = await resolveBindings();
-    return b.ListLotMembers(lotId);
+    return b.UpdatePurchaseNumber(id, number);
   },
 
   async listCreditCards() {

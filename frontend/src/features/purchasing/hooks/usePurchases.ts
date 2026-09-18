@@ -6,7 +6,6 @@ interface PurchaseFilters {
   search?: string;
   status?: string;
   creditCardId?: string;
-  importLotId?: string;
   from?: string;
   to?: string;
 }
@@ -47,6 +46,14 @@ export function useMarkPurchaseFaulty() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ id, reason }: { id: string; reason: string }) => purchasingService.markFaulty(id, reason),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: queryKeys.purchasing.all }),
+  });
+}
+
+export function useUpdatePurchaseNumber() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, number }: { id: string; number: string }) => purchasingService.updateNumber(id, number),
     onSuccess: () => void qc.invalidateQueries({ queryKey: queryKeys.purchasing.all }),
   });
 }

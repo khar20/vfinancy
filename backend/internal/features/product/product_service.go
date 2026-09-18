@@ -12,6 +12,7 @@ import (
 	"vfinancy/backend/infrastructure/logger"
 	"vfinancy/backend/internal/domain/repositories"
 	"vfinancy/backend/internal/domain/valueobjects"
+	"vfinancy/backend/internal/shared/apperrors"
 )
 
 // ProductService owns the product slice.
@@ -90,11 +91,11 @@ func (s *ProductService) GetOrCreate(ctx context.Context, in CreateInput) (*Prod
 	return s.Create(ctx, in)
 }
 
-// UpdateInput is the payload for Update. An empty description keeps
-// the current one; nil money pointers keep the current value; a nil
-// UnitCode keeps the current unit.
+// UpdateInput is the payload for Update. An empty field keeps the
+// current value; a nil pointer keeps the current value.
 type UpdateInput struct {
 	ID          uuid.UUID
+	SKU         string
 	Description string
 	UnitCode    *string
 	CostUSD     *valueobjects.Money
@@ -111,6 +112,13 @@ func (s *ProductService) Update(ctx context.Context, in UpdateInput) (*Product, 
 		p, err := s.repo.GetByID(ctx, in.ID)
 		if err != nil {
 			return err
+		}
+		if sku := strings.TrimSpace(in.SKU); sku != "" {
+			skuVal, err := valueobjects.NewSKU(sku)
+			if err != nil {
+				return err
+			}
+			p.SKU = skuVal
 		}
 		if in.Description != "" {
 			p.Description = strings.TrimSpace(in.Description)
@@ -129,6 +137,9 @@ func (s *ProductService) Update(ctx context.Context, in UpdateInput) (*Product, 
 		}
 		p.Touch()
 		if err := s.repo.Update(ctx, p); err != nil {
+			if errors.Is(err, repositories.ErrDuplicate) {
+				return apperrors.Errorf(apperrors.ErrConflict, "ya existe un producto con ese SKU")
+			}
 			return err
 		}
 		out = p

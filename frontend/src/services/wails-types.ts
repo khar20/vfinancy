@@ -71,7 +71,7 @@ export interface Preferences {
   clearanceWarningDays: number;
   importCostFactor: number;
   fallbackExchangeRate: number;
-  customsLimitUSD: number;
+  purchaseLimitUSD: number;
   backupFolder: string;
   backupFrequency: string;
 }
@@ -113,6 +113,26 @@ export interface SaveCustomerRequest {
   email: string;
   phone: string;
   address: string;
+}
+
+export interface SupplierDTO {
+  id: string;
+  name: string;
+  contactName: string;
+  phone: string;
+  email: string;
+  address: string;
+  isActive: boolean;
+}
+
+export interface SaveSupplierRequest {
+  id?: string;
+  name: string;
+  contactName: string;
+  phone: string;
+  email: string;
+  address: string;
+  status: string;
 }
 
 export interface ProductDTO {
@@ -285,9 +305,13 @@ export interface PurchaseOrderDTO {
   arrivalDate: string;
   status: 'pending' | 'received' | 'cancelled';
   currencyCode: string;
+  paymentMethod: 'card' | 'cash' | 'digital_wallet';
   exchangeRate: number;
   notes: string;
   customerId: string;
+  supplierId: string;
+  supplierName: string;
+  productsText: string;
   creditCardId: string;
   costUsd: number;
   salePricePen: number;
@@ -304,7 +328,6 @@ export interface PurchaseFilterRequest extends PaginationRequest {
   search: string;
   status: string;
   creditCardId: string;
-  importLotId: string;
   from: string;
   to: string;
 }
@@ -320,6 +343,8 @@ export interface PurchaseItemRequest {
 export interface CreatePurchaseRequest {
   number?: string;
   customerId: string;
+  supplierId: string;
+  paymentMethod: 'card' | 'cash' | 'digital_wallet';
   creditCardId: string;
   exchangeRate: number;
   orderDate: string;
@@ -331,17 +356,6 @@ export interface CreatePurchaseRequest {
 export interface CancelPurchaseRequest {
   id: string;
   reason: string;
-}
-
-export interface ImportLotDTO {
-  id: string;
-  code: string;
-  description: string;
-  status: string;
-  totalUsd: number;
-  overLimit: boolean;
-  customsLimitUsd: number;
-  members: PurchaseOrderDTO[];
 }
 
 export interface CreditCardDTO {
@@ -443,6 +457,12 @@ export interface AppBindings {
   RemoveCustomer(id: string): Promise<void>;
   GetCustomerByDocument(docType: string, docNumber: string): Promise<CustomerDTO>;
 
+  ListSuppliers(req: PaginationRequest, search: string): Promise<PageResult<SupplierDTO>>;
+  SupplierOptions(): Promise<SupplierDTO[]>;
+  CreateSupplier(req: SaveSupplierRequest): Promise<SupplierDTO>;
+  UpdateSupplier(req: SaveSupplierRequest): Promise<SupplierDTO>;
+  RemoveSupplier(id: string): Promise<void>;
+
   ListProducts(req: PaginationRequest, search: string): Promise<PageResult<ProductDTO>>;
   ProductOptions(): Promise<ProductDTO[]>;
   GetProduct(id: string): Promise<ProductDTO>;
@@ -452,7 +472,7 @@ export interface AppBindings {
   SetProductActive(id: string, active: boolean): Promise<void>;
   GetProductStock(id: string): Promise<number>;
 
-  ListInventoryBatches(req: PaginationRequest, onlyClearance: boolean, search: string): Promise<PageResult<InventoryBatchDTO>>;
+  ListInventoryBatches(req: PaginationRequest, status: string, search: string): Promise<PageResult<InventoryBatchDTO>>;
   ListInventoryMovements(req: PaginationRequest, productId: string): Promise<PageResult<InventoryMovementDTO>>;
   ReceiveStock(req: ReceiveStockRequest): Promise<InventoryBatchDTO>;
   AdjustStock(req: AdjustStockRequest): Promise<void>;
@@ -473,12 +493,7 @@ export interface AppBindings {
   MarkPurchaseReceived(id: string, receivedDate: string): Promise<void>;
   CancelPurchase(req: CancelPurchaseRequest): Promise<PurchaseOrderDTO>;
   MarkPurchaseFaulty(req: CancelPurchaseRequest): Promise<PurchaseOrderDTO>;
-  CreateImportLot(description: string, purchaseIds: string[]): Promise<ImportLotDTO>;
-  AddToImportLot(lotId: string, purchaseIds: string[]): Promise<ImportLotDTO>;
-  RemoveFromImportLot(lotId: string, purchaseId: string): Promise<ImportLotDTO>;
-  CloseImportLot(id: string): Promise<ImportLotDTO>;
-  ListImportLots(req: PaginationRequest, search: string): Promise<PageResult<ImportLotDTO>>;
-  ListLotMembers(lotId: string): Promise<PurchaseOrderDTO[]>;
+  UpdatePurchaseNumber(id: string, number: string): Promise<PurchaseOrderDTO>;
 
   ListCreditCards(): Promise<CreditCardDTO[]>;
   IssueCreditCard(req: SaveCreditCardRequest): Promise<CreditCardDTO>;

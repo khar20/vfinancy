@@ -16,7 +16,7 @@ const businessSchema = z.object({
   clearanceDays: z.number().int().min(1, 'Entre 1 y 365').max(365),
   importCostFactor: z.number().min(0, 'Debe ser >= 0').max(100),
   fallbackExchangeRate: z.number().min(0.01, 'Entre 0.01 y 100').max(100),
-  customsLimitUsd: z.number().min(0, 'Debe ser >= 0').max(1_000_000),
+  purchaseLimitUsd: z.number().min(0, 'Debe ser >= 0').max(1_000_000),
 });
 
 type BusinessValues = z.infer<typeof businessSchema>;
@@ -31,7 +31,7 @@ function BusinessTab() {
       await wailsClient.updatePreference('clearance_days', String(values.clearanceDays));
       await wailsClient.updatePreference('import_cost_factor', String(values.importCostFactor));
       await wailsClient.updatePreference('fallback_exchange_rate', String(values.fallbackExchangeRate));
-      await wailsClient.updatePreference('customs_limit_usd', String(values.customsLimitUsd));
+      await wailsClient.updatePreference('purchase_limit_usd', String(values.purchaseLimitUsd));
       await queryClient.invalidateQueries({ queryKey: queryKeys.settings.preferences });
       push({ title: 'Parámetros de negocio guardados', variant: 'success' });
     } catch (cause) {
@@ -49,13 +49,13 @@ function BusinessTab() {
     clearanceDays: prefs.data?.clearanceDays ?? 25,
     importCostFactor: prefs.data?.importCostFactor ?? 0.07,
     fallbackExchangeRate: prefs.data?.fallbackExchangeRate ?? 1,
-    customsLimitUsd: prefs.data?.customsLimitUSD ?? 0,
+    purchaseLimitUsd: prefs.data?.purchaseLimitUSD ?? 200,
   };
 
   return (
     <Section
       title="Parámetros de negocio"
-      description="Controlan el remate, el costo de importación y el tope aduanero."
+      description="Controlan el remate, el costo de importación y el tope de compra."
     >
       <Form<BusinessValues> key={JSON.stringify(defaults)} schema={businessSchema} defaultValues={defaults} onSubmit={save}>
         {({ formState }) => (
@@ -86,9 +86,9 @@ function BusinessTab() {
               required
             />
             <NumberField
-              name="customsLimitUsd"
-              label="Tope aduanero USD"
-              description="Monto máximo por lote antes de la advertencia."
+              name="purchaseLimitUsd"
+              label="Tope de compra USD"
+              description="Monto máximo por orden de compra antes de la advertencia."
               min={0}
               max={1_000_000}
               step={1}

@@ -28,6 +28,8 @@ import (
 	salespostgres "vfinancy/backend/internal/features/sales/postgres"
 	"vfinancy/backend/internal/features/shipment"
 	shipmentpostgres "vfinancy/backend/internal/features/shipment/postgres"
+	"vfinancy/backend/internal/features/supplier"
+	supplierpostgres "vfinancy/backend/internal/features/supplier/postgres"
 	"vfinancy/backend/internal/features/sync"
 	syncpostgres "vfinancy/backend/internal/features/sync/postgres"
 	"vfinancy/backend/internal/features/treasury"
@@ -55,6 +57,7 @@ type App struct {
 	purchasingSvc *purchasing.PurchasingService
 	customersSvc  *customer.CustomerService
 	productsSvc   *product.ProductService
+	suppliersSvc  *supplier.Service
 	syncSvc       *sync.Service
 	shipmentSvc   *shipment.ShipmentService
 
@@ -166,7 +169,7 @@ func (a *App) initializeServices(ctx context.Context) error {
 	ordersRepo := salespostgres.NewSaleRepository(db.DB)
 	paymentsRepo := salespostgres.NewCustomerPaymentRepository(db.DB)
 	purchaseRepo := purchasingpostgres.NewPurchaseRepository(db.DB)
-	lotsRepo := purchasingpostgres.NewImportLotRepository(db.DB)
+	suppliersRepo := supplierpostgres.NewSupplierRepository(db.DB)
 
 	a.customersSvc = customer.NewService(customersRepo, txm, a.log)
 	a.productsSvc = product.NewService(productsRepo, txm, a.log)
@@ -174,12 +177,12 @@ func (a *App) initializeServices(ctx context.Context) error {
 	a.inventorySvc.SetClearanceSettings(a.clearanceSettings)
 	a.treasurySvc = treasury.New(cardsRepo, ratesRepo, txm, a.log)
 	a.treasurySvc.SetFallbackRate(a.fallbackRate)
+	a.suppliersSvc = supplier.NewService(suppliersRepo, txm, a.log)
 	a.purchasingSvc = purchasing.New(purchaseRepo, a.inventorySvc, txm, a.log)
-	a.purchasingSvc.SetImportLots(lotsRepo)
+	a.purchasingSvc.SetSuppliers(a.suppliersSvc)
 	a.purchasingSvc.SetProducts(a.productsSvc, a.productsSvc)
 	a.purchasingSvc.SetTreasury(a.treasurySvc)
 	a.purchasingSvc.SetImportFactor(a.importFactor)
-	a.purchasingSvc.SetCustomsLimit(a.customsLimit)
 	a.salesSvc = sales.New(ordersRepo, paymentsRepo, a.customersSvc, a.productsSvc, a.inventorySvc, a.purchasingSvc, txm, a.log)
 	a.salesSvc.SetClientOrderRateProvider(a.clientOrderRate)
 
@@ -257,14 +260,6 @@ func (a *App) importFactor(ctx context.Context) float64 {
 		return 0.07
 	}
 	return prefs.ImportCostFactor
-}
-
-func (a *App) customsLimit(ctx context.Context) float64 {
-	prefs, err := a.settingsSvc.GetPreferences(ctx)
-	if err != nil {
-		return 200
-	}
-	return prefs.CustomsLimitUSD
 }
 
 // startClearanceWorker reconciles the persisted clearance flags on a

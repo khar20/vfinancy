@@ -13,26 +13,22 @@ import {
   type CreateSelectOption,
   type SelectOption,
 } from '@/components/form';
-import { DialogBody, Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/dialog';
+import { DialogBody, Dialog, AlertDialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/dialog';
 import { Button } from '@/components/button';
 import { Badge } from '@/components/badge';
 import { Input, Label } from '@/components/input';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/select';
 import { useCreatePurchase } from '@/features/purchasing/hooks/usePurchases';
 import { useCreditCards } from '@/features/treasury/hooks/useTreasury';
 import { CreditCardFormDialog } from '@/features/treasury/components/CreditCardFormDialog';
 import { CreateCustomerDialog } from '@/features/customers/components/CreateCustomerDialog';
 import { useProducts } from '@/features/products/hooks/useProducts';
+import { useSupplierOptions } from '@/features/suppliers/hooks/useSuppliers';
+import { SupplierFormDialog } from '@/features/suppliers/components/SupplierFormDialog';
 import { wailsClient } from '@/services/bindings';
 import { queryKeys } from '@/services/queryKeys';
 import { formatCurrency } from '@/utils/format';
 import { useNotificationStore } from '@/stores/notification';
+import { PurchasePaymentMethodOptions } from '@/constants/paymentMethods';
 
 const lineSchema = z
   .object({
@@ -51,6 +47,8 @@ const PurchaseFormSchema = z
   .object({
     number: z.string().trim().optional(),
     customerId: z.string(),
+    supplierId: z.string().min(1, 'Seleccione el proveedor'),
+    paymentMethod: z.string().min(1, 'Seleccione la forma de pago'),
     creditCardId: z.string().min(1, 'Seleccione la tarjeta de crédito'),
     exchangeRate: z.number().min(0.01, 'Tipo de cambio inválido'),
     orderDate: z.string().min(1, 'Fecha requerida').regex(/^\d{4}-\d{2}-\d{2}$/, 'Formato de fecha inválido'),
@@ -100,19 +98,30 @@ interface ProductCostOption extends SelectOption {
   salePrice: number;
 }
 
-function OrderDataStep({ cardOptions, customerOptions, cardsQuery, rateQuery, lotsQuery, cardCreateOption, customerCreateOption }: {
+function OrderDataStep({ cardOptions, customerOptions, cardsQuery, rateQuery, supplierOptions, cardCreateOption, customerCreateOption, supplierCreateOption }: {
   cardOptions: SelectOption[];
   customerOptions: SelectOption[];
   cardsQuery: { isLoading: boolean };
   rateQuery: { data?: { rate?: number; isFallback?: boolean }; isLoading: boolean };
-  lotsQuery: { data?: { items: { id: string; status: string; code: string; description: string }[] } };
+  supplierOptions: SelectOption[];
   cardCreateOption: CreateSelectOption;
   customerCreateOption: CreateSelectOption;
+  supplierCreateOption: CreateSelectOption;
 }) {
   return (
     <div className="stack">
       <ExchangeRateSeed rate={rateQuery.data?.rate} />
-      <CustomerField customers={customerOptions} createCustomer={customerCreateOption} />
+      <div className="form-grid">
+        <SelectField
+          name="supplierId"
+          label="Proveedor"
+          required
+          placeholder="Seleccione el proveedor…"
+          options={supplierOptions}
+          createOption={supplierCreateOption}
+        />
+        <CustomerField customers={customerOptions} createCustomer={customerCreateOption} />
+      </div>
       <div className="form-grid">
         <SelectField
           name="creditCardId"
@@ -124,6 +133,13 @@ function OrderDataStep({ cardOptions, customerOptions, cardsQuery, rateQuery, lo
           loading={cardsQuery.isLoading}
           createOption={cardCreateOption}
         />
+        <SelectField
+          name="paymentMethod"
+          label="Forma de pago"
+          required
+          placeholder="Seleccione…"
+          options={PurchasePaymentMethodOptions}
+        />
       </div>
       {cardOptions.length === 0 && !cardsQuery.isLoading && (
         <p className="field__error" role="alert">Cree una tarjeta en Tesorería</p>
@@ -132,7 +148,7 @@ function OrderDataStep({ cardOptions, customerOptions, cardsQuery, rateQuery, lo
         <TextField
           name="number"
           label="Número de orden"
-          description="Opcional: déjalo vacío para generarlo automáticamente. No se puede cambiar después."
+          description="Opcional: déjalo vacío para generarlo automáticamente. Podrás cambiarlo después."
         />
         <DateField name="orderDate" label="Fecha de pedido" required />
         <DateField name="expectedDate" label="Fecha estimada" description="Opcional" />
@@ -141,31 +157,6 @@ function OrderDataStep({ cardOptions, customerOptions, cardsQuery, rateQuery, lo
         <div className="field">
           <Label htmlFor="purchase-unit-code">Unidad de medida</Label>
           <Input id="purchase-unit-code" value="Unidad" disabled readOnly aria-label="Unidad de medida" />
-        </div>
-        <div className="field">
-          <Label htmlFor="purchase-lot">Lote de importación</Label>
-          <Select
-            items={[
-              { value: '', label: 'Sin lote' },
-              ...(lotsQuery.data?.items ?? [])
-                .filter((l) => l.status === 'active')
-                .map((l) => ({ value: l.id, label: `${l.code} · ${l.description || 'sin descripción'}` })),
-            ]}
-          >
-            <SelectTrigger id="purchase-lot" aria-label="Lote de importación">
-              <SelectValue placeholder="Sin lote" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="">Sin lote</SelectItem>
-              {(lotsQuery.data?.items ?? [])
-                .filter((l) => l.status === 'active')
-                .map((l) => (
-                  <SelectItem key={l.id} value={l.id}>
-                    {l.code} · {l.description || 'sin descripción'}
-                  </SelectItem>
-                ))}
-            </SelectContent>
-          </Select>
         </div>
       </div>
       <div className="form-grid form-grid--wide">
@@ -271,11 +262,13 @@ function formatUsd(value: number): string {
 export function PurchaseFormDialog({ open, onOpenChange }: PurchaseFormDialogProps) {
   const create = useCreatePurchase();
   const push = useNotificationStore((s) => s.push);
-  const [lotId, setLotId] = useState('');
   const [cardCreateOpen, setCardCreateOpen] = useState(false);
   const assignCard = useRef<(id: string) => void>(() => {});
   const [customerCreateOpen, setCustomerCreateOpen] = useState(false);
   const assignCustomer = useRef<(id: string) => void>(() => {});
+  const [supplierCreateOpen, setSupplierCreateOpen] = useState(false);
+  const assignSupplier = useRef<(id: string) => void>(() => {});
+  const [confirmingValues, setConfirmingValues] = useState<PurchaseFormValues | null>(null);
   const cardCreateOption: CreateSelectOption = {
     label: 'Crear nueva tarjeta…',
     onSelect: (assign) => {
@@ -290,11 +283,24 @@ export function PurchaseFormDialog({ open, onOpenChange }: PurchaseFormDialogPro
       setCustomerCreateOpen(true);
     },
   };
+  const supplierCreateOption: CreateSelectOption = {
+    label: 'Crear nuevo proveedor…',
+    onSelect: (assign) => {
+      assignSupplier.current = assign;
+      setSupplierCreateOpen(true);
+    },
+  };
   const productsQuery = useProducts();
   const cardsQuery = useCreditCards();
+  const suppliersQuery = useSupplierOptions();
   const customersQuery = useQuery({
     queryKey: queryKeys.customers.options,
     queryFn: () => wailsClient.customerOptions(),
+    enabled: open,
+  });
+  const prefsQuery = useQuery({
+    queryKey: queryKeys.settings.preferences,
+    queryFn: () => wailsClient.getPreferences(),
     enabled: open,
   });
   const rateQuery = useQuery({
@@ -302,11 +308,8 @@ export function PurchaseFormDialog({ open, onOpenChange }: PurchaseFormDialogPro
     queryFn: () => wailsClient.latestExchangeRate(),
     staleTime: 60 * 1000,
   });
-  const lotsQuery = useQuery({
-    queryKey: queryKeys.importLots.list({ page: 1, pageSize: 100, search: '' }),
-    queryFn: () => wailsClient.listImportLots({ page: 1, pageSize: 100 }, ''),
-    enabled: open,
-  });
+
+  const purchaseLimit = prefsQuery.data?.purchaseLimitUSD ?? 200;
 
   const cardOptions = useMemo<SelectOption[]>(
     () => (cardsQuery.data ?? []).map((c) => ({ value: c.id, label: `${c.issuer} •••• ${c.lastFour}` })),
@@ -318,6 +321,11 @@ export function PurchaseFormDialog({ open, onOpenChange }: PurchaseFormDialogPro
     [customersQuery.data],
   );
 
+  const supplierOptions = useMemo<SelectOption[]>(
+    () => (suppliersQuery.data ?? []).map((s) => ({ value: s.id, label: s.name })),
+    [suppliersQuery.data],
+  );
+
   const productOptions = useMemo<ProductCostOption[]>(
     () => (productsQuery.data?.items ?? []).map((p) => ({ value: p.id, label: `${p.sku} — ${p.description}`, unitCost: p.costUsd, salePrice: p.salePrice })),
     [productsQuery.data],
@@ -327,6 +335,8 @@ export function PurchaseFormDialog({ open, onOpenChange }: PurchaseFormDialogPro
     () => ({
       number: '',
       customerId: '',
+      supplierId: '',
+      paymentMethod: 'card',
       creditCardId: '',
       exchangeRate: 0,
       orderDate: today(),
@@ -337,23 +347,21 @@ export function PurchaseFormDialog({ open, onOpenChange }: PurchaseFormDialogPro
     [],
   );
 
-  useEffect(() => {
-    if (!open) setLotId('');
-  }, [open]);
-
-  const steps = [
-    { title: 'Orden', description: 'Datos generales de la compra.' },
-    { title: 'Ítems', description: 'Productos, cantidades y precios.' },
-    { title: 'Revisar', description: 'Notas y confirmación.' },
-  ];
+const steps = [
+  { description: 'Proveedor, pago y datos generales.' },
+  { description: 'Productos, cantidades y precios.' },
+  { description: 'Notas y confirmación.' },
+];
 
   const [step, setStep] = useState(0);
 
-  const handleSubmit = (values: PurchaseFormValues) => {
+  const doCreate = (values: PurchaseFormValues) => {
     create.mutate(
       {
         number: values.number,
         customerId: values.customerId,
+        supplierId: values.supplierId,
+        paymentMethod: (values.paymentMethod as 'card' | 'cash' | 'digital_wallet'),
         creditCardId: values.creditCardId,
         orderDate: values.orderDate,
         expectedDate: values.expectedDate,
@@ -368,27 +376,8 @@ export function PurchaseFormDialog({ open, onOpenChange }: PurchaseFormDialogPro
         })),
       },
       {
-        onSuccess: async (purchase) => {
-          if (lotId) {
-            try {
-              const lot = await wailsClient.addToImportLot(lotId, [purchase.id]);
-              if (lot.overLimit) {
-                push({
-                  title: 'El lote supera el tope aduanero',
-                  description: `El lote ${lot.code} supera ${formatCurrency(lot.customsLimitUsd, 'USD')}.`,
-                  variant: 'warning',
-                });
-              }
-            } catch (err) {
-              push({
-                title: 'La orden se creó, pero no se pudo asignar al lote',
-                description: err instanceof Error ? err.message : undefined,
-                variant: 'destructive',
-              });
-            }
-          }
+        onSuccess: (purchase) => {
           push({ title: 'Orden de compra creada', description: purchase.number, variant: 'success' });
-          setLotId('');
           onOpenChange(false);
         },
         onError: (err: unknown) => {
@@ -402,11 +391,25 @@ export function PurchaseFormDialog({ open, onOpenChange }: PurchaseFormDialogPro
     );
   };
 
+  const handleSubmit = (values: PurchaseFormValues) => {
+    const totalUsd = values.items.reduce((s, r) => s + (r.unitPrice ?? 0) * (r.quantity ?? 0), 0);
+    if (totalUsd > purchaseLimit) {
+      setConfirmingValues(values);
+      return;
+    }
+    doCreate(values);
+  };
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent size="xl">
         <DialogHeader>
-          <DialogTitle>{steps[step].title}</DialogTitle>
+          <div className="stack stack--xs">
+            <DialogTitle>Nueva orden de compra</DialogTitle>
+            <p className="dialog-subheader">
+              Paso {step + 1} de {steps.length} · {steps[step].description}
+            </p>
+          </div>
         </DialogHeader>
 
         <Form schema={PurchaseFormSchema} defaultValues={defaults} onSubmit={handleSubmit}>
@@ -419,9 +422,10 @@ export function PurchaseFormDialog({ open, onOpenChange }: PurchaseFormDialogPro
                     customerOptions={customerOptions}
                     cardsQuery={cardsQuery}
                     rateQuery={rateQuery}
-                    lotsQuery={lotsQuery}
+                    supplierOptions={supplierOptions}
                     cardCreateOption={cardCreateOption}
                     customerCreateOption={customerCreateOption}
+                    supplierCreateOption={supplierCreateOption}
                   />
                 )}
                 {step === 1 && <ItemsStep products={productOptions} />}
@@ -442,7 +446,7 @@ export function PurchaseFormDialog({ open, onOpenChange }: PurchaseFormDialogPro
                     onClick={async () => {
                       const fields: Array<Path<PurchaseFormValues>> =
                         step === 0
-                          ? ['creditCardId', 'customerId', 'orderDate', 'exchangeRate']
+                          ? ['creditCardId', 'customerId', 'supplierId', 'paymentMethod', 'orderDate', 'exchangeRate']
                           : ['items'];
                       if (await form.trigger(fields)) setStep((s) => s + 1);
                     }}
@@ -469,6 +473,26 @@ export function PurchaseFormDialog({ open, onOpenChange }: PurchaseFormDialogPro
           open={customerCreateOpen}
           onOpenChange={setCustomerCreateOpen}
           onCreated={(id) => assignCustomer.current(id)}
+        />
+        <SupplierFormDialog
+          open={supplierCreateOpen}
+          onOpenChange={setSupplierCreateOpen}
+          onSaved={(id) => assignSupplier.current(id)}
+        />
+
+        <AlertDialog
+          open={!!confirmingValues}
+          onOpenChange={(o) => {
+            if (!o) setConfirmingValues(null);
+          }}
+          variant="warning"
+          title={`La orden supera ${formatCurrency(purchaseLimit, 'USD')}`}
+          confirmLabel="Crear de todas formas"
+          loading={create.isPending}
+          onConfirm={() => {
+            if (confirmingValues) doCreate(confirmingValues);
+            setConfirmingValues(null);
+          }}
         />
       </DialogContent>
     </Dialog>

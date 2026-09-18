@@ -17,7 +17,7 @@ const (
 	keyClearanceWarningDays = keyPrefix + "clearance_warning_days"
 	keyImportCostFactor     = keyPrefix + "import_cost_factor"
 	keyFallbackExchangeRate = keyPrefix + "fallback_exchange_rate"
-	keyCustomsLimitUSD      = keyPrefix + "customs_limit_usd"
+	keyPurchaseLimitUSD     = keyPrefix + "purchase_limit_usd"
 	keyBackupFolder         = keyPrefix + "backup_folder"
 	keyBackupFrequency      = keyPrefix + "backup_frequency"
 )
@@ -28,7 +28,7 @@ type SystemPreferences struct {
 	ClearanceWarningDays int
 	ImportCostFactor     float64
 	FallbackExchangeRate float64
-	CustomsLimitUSD      float64
+	PurchaseLimitUSD     float64
 	BackupFolder         string
 	BackupFrequency      string
 }
@@ -57,7 +57,7 @@ func (s *SettingsService) GetPreferences(ctx context.Context) (*SystemPreference
 		ClearanceWarningDays: 3,
 		ImportCostFactor:     0.07,
 		FallbackExchangeRate: 3.75,
-		CustomsLimitUSD:      200,
+		PurchaseLimitUSD:     200,
 		BackupFrequency:      "off",
 	}
 	settings, err := s.settings.List(ctx)
@@ -74,8 +74,8 @@ func (s *SettingsService) GetPreferences(ctx context.Context) (*SystemPreference
 			prefs.ImportCostFactor = setting.Float64Value()
 		case keyFallbackExchangeRate:
 			prefs.FallbackExchangeRate = setting.Float64Value()
-		case keyCustomsLimitUSD:
-			prefs.CustomsLimitUSD = setting.Float64Value()
+		case keyPurchaseLimitUSD:
+			prefs.PurchaseLimitUSD = setting.Float64Value()
 		case keyBackupFolder:
 			prefs.BackupFolder = setting.StringValue()
 		case keyBackupFrequency:
@@ -114,10 +114,10 @@ func (s *SettingsService) UpdatePreference(ctx context.Context, key string, valu
 			return derrors.New("INVALID", "fallback exchange rate must be between 0.01 and 100")
 		}
 		value = f
-	case keyCustomsLimitUSD:
+	case keyPurchaseLimitUSD:
 		f, ok := coerceFloat(value)
 		if !ok || f < 0 || f > 1_000_000 {
-			return derrors.New("INVALID", "customs limit must be between 0 and 1000000")
+			return derrors.New("INVALID", "purchase limit must be between 0 and 1000000")
 		}
 		value = f
 	case keyBackupFolder:

@@ -13,6 +13,28 @@ import (
 // USD is the transactional currency of every purchase order.
 const USD = "USD"
 
+// PurchasePaymentMethod is how an order is paid.
+type PurchasePaymentMethod string
+
+// Purchase payment methods.
+const (
+	PaymentCard          PurchasePaymentMethod = "card"
+	PaymentCash          PurchasePaymentMethod = "cash"
+	PaymentDigitalWallet PurchasePaymentMethod = "digital_wallet"
+)
+
+// DefaultPaymentMethod is applied when the form does not explicit one.
+const DefaultPaymentMethod = PaymentCard
+
+// Valid reports whether the method is supported.
+func (p PurchasePaymentMethod) Valid() bool {
+	switch p {
+	case PaymentCard, PaymentCash, PaymentDigitalWallet:
+		return true
+	}
+	return false
+}
+
 // PurchaseOrder is the root aggregate for a purchase. All monetary
 // costs are recorded in USD (the supplier currency) with the PEN
 // landed-cost projections stored alongside.
@@ -25,9 +47,11 @@ type PurchaseOrder struct {
 	ArrivalDate        *time.Time
 	Status             enums.PurchaseStatus
 	CurrencyCode       string
+	PaymentMethod      PurchasePaymentMethod
 	ExchangeRate       valueobjects.ExchangeRate
 	Notes              string
 	CustomerID         *uuid.UUID
+	SupplierID         *uuid.UUID
 	CreditCardID       *uuid.UUID
 	CostUSD            valueobjects.Money
 	SalePricePen       valueobjects.Money
@@ -43,6 +67,11 @@ type PurchaseOrder struct {
 
 	// Items are the order lines. Loaded by the repository / service.
 	Items []*PurchaseOrderItem
+
+	// SupplierName and ProductsText are read-only denormalized views
+	// filled by the repository / service for the list and the detail.
+	SupplierName string
+	ProductsText string
 }
 
 // Validate checks the aggregate invariants that hold regardless of the
@@ -59,6 +88,9 @@ func (p *PurchaseOrder) Validate() error {
 	}
 	if !p.ExchangeRate.Decimal().IsPositive() {
 		return derrors.Wrap(derrors.ErrOutOfRange, errField("exchange rate must be positive"))
+	}
+	if !p.PaymentMethod.Valid() {
+		return derrors.Wrap(derrors.ErrInvalidEnum, errField("payment method is invalid"))
 	}
 	// RefundAmount and CostUSD/SalePricePen/RealCostPen are recorded
 	// inputs and must never be negative.

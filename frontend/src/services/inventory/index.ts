@@ -31,11 +31,11 @@ async function skuIndex(): Promise<Map<string, string>> {
 
 export const inventoryService = {
   async list(
-    q: { search?: string; page?: number; pageSize?: number } = {},
+    q: { search?: string; status?: string; page?: number; pageSize?: number } = {},
   ): Promise<InventoryItem[]> {
     const [items, skus] = await Promise.all([
       fetchAllPages((page, pageSize) =>
-        wailsClient.listInventoryBatches({ page, pageSize }, false, q.search ?? ''),
+        wailsClient.listInventoryBatches({ page, pageSize }, q.status ?? '', q.search ?? ''),
       ),
       skuIndex(),
     ]);

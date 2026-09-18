@@ -13,8 +13,9 @@ import (
 type InventoryBatchFilter struct {
 	ProductID      *uuid.UUID
 	PurchaseLineID *uuid.UUID
-	OnlyActive     bool // exclude depleted / voided
-	OnlyClearance  bool // batches past their maximum sale date
+	Statuses       []string // exact batch statuses; takes precedence over OnlyActive/OnlyClearance
+	OnlyActive     bool     // exclude depleted / voided
+	OnlyClearance  bool     // batches past their maximum sale date
 	Search         string
 	repositories.PageRequest
 }

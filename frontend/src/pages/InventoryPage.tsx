@@ -239,7 +239,16 @@ function InventorySettingsDrawer({ open, onOpenChange }: { open: boolean; onOpen
 }
 
 export function InventoryPage() {
-  const { data, isLoading, isError, error, refetch } = useInventory();
+  const [statusFilter, setStatusFilter] = useState('all');
+  const storeQuery = useInventory();
+  const voidedQuery = useInventory({ status: 'voided' });
+  const isLoading = storeQuery.isLoading || voidedQuery.isLoading;
+  const isError = storeQuery.isError || voidedQuery.isError;
+  const error = storeQuery.error ?? voidedQuery.error;
+  const refetch = () => {
+    void storeQuery.refetch();
+    void voidedQuery.refetch();
+  };
   const voidStock = useVoidStock();
   const push = useNotificationStore((s) => s.push);
 
@@ -247,13 +256,12 @@ export function InventoryPage() {
   const [receiveTarget, setReceiveTarget] = useState<InventoryItem | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [productsOpen, setProductsOpen] = useState(false);
-  const [statusFilter, setStatusFilter] = useState('all');
   const [search, setSearch] = useState('');
   const [adjustTarget, setAdjustTarget] = useState<InventoryItem | null>(null);
   const [voidTarget, setVoidTarget] = useState<InventoryItem | null>(null);
   const [movementsTarget, setMovementsTarget] = useState<InventoryItem | null>(null);
 
-  const items = data ?? [];
+  const items = [...(storeQuery.data ?? []), ...(voidedQuery.data ?? [])];
   const live = items.filter((i) => i.status !== 'voided');
   const totalUnits = live.reduce((s, i) => s + i.quantity, 0);
   const inventoryValue = live.reduce((s, i) => s + i.quantity * i.unitCost, 0);
@@ -351,6 +359,7 @@ export function InventoryPage() {
         onRetry={() => refetch()}
         onRowClick={(row) => setMovementsTarget(row)}
         rowActions={buildActions}
+        rowClassName={(row) => (row.status === 'depleted' ? 'row-dimmed' : undefined)}
         preferencesKey="inventory"
         toolbarLeft={
           <>

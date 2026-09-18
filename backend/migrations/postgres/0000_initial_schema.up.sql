@@ -97,6 +97,25 @@ CREATE TABLE credit_cards (
 
 CREATE INDEX idx_credit_cards_active ON credit_cards (is_active) WHERE deleted_at IS NULL;
 
+CREATE TABLE suppliers (
+    id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name         VARCHAR(200) NOT NULL,
+    contact_name VARCHAR(200) NOT NULL DEFAULT '',
+    phone        VARCHAR(30)  NOT NULL DEFAULT '',
+    email        VARCHAR(200) NOT NULL DEFAULT '',
+    address      TEXT,
+    is_active    BOOLEAN      NOT NULL DEFAULT TRUE,
+
+    created_at   TIMESTAMPTZ  NOT NULL DEFAULT now(),
+    updated_at   TIMESTAMPTZ  NOT NULL DEFAULT now(),
+    deleted_at   TIMESTAMPTZ,
+
+    CONSTRAINT ck_suppliers_name_nonblank CHECK (length(trim(name)) > 0)
+);
+
+CREATE UNIQUE INDEX uq_suppliers_name ON suppliers (name) WHERE deleted_at IS NULL;
+CREATE INDEX idx_suppliers_active ON suppliers (is_active) WHERE deleted_at IS NULL;
+
 CREATE TABLE purchase_orders (
     id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     number         VARCHAR(30) NOT NULL,
@@ -105,9 +124,11 @@ CREATE TABLE purchase_orders (
     received_date  TIMESTAMPTZ,
     status         VARCHAR(20) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'received', 'cancelled')),
     currency_code  VARCHAR(3)  NOT NULL DEFAULT 'USD',
+    payment_method VARCHAR(20) NOT NULL DEFAULT 'card' CHECK (payment_method IN ('card', 'cash', 'digital_wallet')),
     exchange_rate  TEXT        NOT NULL DEFAULT '1.000000' CHECK (CAST(exchange_rate AS numeric) > 0),
     notes          TEXT,
     customer_id    UUID,
+    supplier_id    UUID,
     credit_card_id UUID,
     arrival_date   TIMESTAMPTZ,
     cost_usd       TEXT        NOT NULL DEFAULT '0.00' CHECK (CAST(cost_usd AS numeric) >= 0),
@@ -125,6 +146,8 @@ CREATE TABLE purchase_orders (
 
     CONSTRAINT fk_purchase_orders_customer
         FOREIGN KEY (customer_id) REFERENCES customers(id) ON UPDATE CASCADE ON DELETE RESTRICT,
+    CONSTRAINT fk_purchase_orders_supplier
+        FOREIGN KEY (supplier_id) REFERENCES suppliers(id) ON UPDATE CASCADE ON DELETE RESTRICT,
     CONSTRAINT fk_purchase_orders_card
         FOREIGN KEY (credit_card_id) REFERENCES credit_cards(id) ON UPDATE CASCADE ON DELETE RESTRICT,
     CONSTRAINT ck_purchase_orders_dates CHECK (expected_date IS NULL OR expected_date >= order_date)
@@ -300,33 +323,6 @@ CREATE TABLE customer_payment_allocations (
 
 CREATE INDEX idx_customer_payment_alloc_payment ON customer_payment_allocations (customer_payment_id);
 CREATE INDEX idx_customer_payment_alloc_sale ON customer_payment_allocations (sale_id);
-
-CREATE TABLE import_lots (
-    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    code        VARCHAR(30) NOT NULL,
-    description TEXT,
-    status      VARCHAR(20) NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'closed')),
-
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
-    deleted_at  TIMESTAMPTZ
-);
-
-CREATE UNIQUE INDEX uq_import_lots_code ON import_lots (code) WHERE deleted_at IS NULL;
-
-CREATE TABLE import_lot_purchase_orders (
-    import_lot_id     UUID      NOT NULL,
-    purchase_order_id UUID      NOT NULL,
-    added_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
-
-    PRIMARY KEY (import_lot_id, purchase_order_id),
-    CONSTRAINT fk_import_lot_members_lot
-        FOREIGN KEY (import_lot_id) REFERENCES import_lots(id) ON UPDATE CASCADE ON DELETE CASCADE,
-    CONSTRAINT fk_import_lot_members_purchase
-        FOREIGN KEY (purchase_order_id) REFERENCES purchase_orders(id) ON UPDATE CASCADE ON DELETE CASCADE
-);
-
-CREATE INDEX idx_import_lot_members_purchase ON import_lot_purchase_orders (purchase_order_id);
 
 CREATE TABLE shipments (
     id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),

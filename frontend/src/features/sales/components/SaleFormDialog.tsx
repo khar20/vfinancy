@@ -330,9 +330,9 @@ export function SaleFormDialog({ open, onOpenChange }: SaleFormDialogProps) {
   };
 
   const steps = [
-    { title: 'Cliente', description: 'Identifica al comprador y la fecha.' },
-    { title: 'Carrito', description: 'Agrega los productos de la venta.' },
-    { title: 'Pago', description: 'Condición de pago y confirmación.' },
+    { description: 'Identifica al comprador y la fecha.' },
+    { description: 'Agrega los productos de la venta.' },
+    { description: 'Condición de pago y confirmación.' },
   ];
 
   async function handleSubmit(values: SaleFormValues) {
@@ -380,7 +380,10 @@ export function SaleFormDialog({ open, onOpenChange }: SaleFormDialogProps) {
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent size="xl">
         <DialogHeader>
-          <DialogTitle>{steps[step].title}</DialogTitle>
+          <div className="stack stack--xs">
+            <DialogTitle>Nueva venta</DialogTitle>
+            <p className="dialog-subheader">Paso {step + 1} de 3 · {steps[step].description}</p>
+          </div>
         </DialogHeader>
 
         <Form

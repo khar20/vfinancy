@@ -1,11 +1,12 @@
 // Package purchasing implements the business logic for the purchase
 // workflow: order creation (with automatic card charge), receipt into
 // inventory, cancellation with card-charge release and cycle-settled
-// refunds, and customs import lots.
+// refunds, and the landed-cost factor applied to every order.
 package purchasing
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"time"
 
@@ -19,16 +20,13 @@ import (
 	"vfinancy/backend/internal/domain/valueobjects"
 	"vfinancy/backend/internal/features/inventory"
 	"vfinancy/backend/internal/features/product"
+	"vfinancy/backend/internal/features/supplier"
 	"vfinancy/backend/internal/shared/apperrors"
 )
 
 // defaultImportFactor is the additive USD surcharge (customs, freight,
 // logistics) applied to every order when no provider is configured.
 const defaultImportFactor = 0.07
-
-// defaultCustomsLimitUSD is the simplified customs limit per import
-// lot when no provider is configured.
-const defaultCustomsLimitUSD = 200
 
 // cardCharger is the narrow treasury contract consumed by the purchase
 // slice. It is satisfied by *treasury.TreasuryService.
@@ -55,18 +53,22 @@ type stockReceiver interface {
 	VoidPurchaseReceipt(ctx context.Context, purchaseLineIDs []uuid.UUID) error
 }
 
+// supplierGetter loads an existing supplier by id.
+type supplierGetter interface {
+	GetByID(ctx context.Context, id uuid.UUID) (*supplier.Supplier, error)
+}
+
 // PurchasingService owns the purchase slice.
 type PurchasingService struct {
 	orders       PurchaseRepository
-	lots         ImportLotRepository
 	stock        stockReceiver
 	products     productCreator
 	productByID  productGetter
 	cards        cardCharger
+	suppliers    supplierGetter
 	txm          repositories.TransactionManager
 	log          *logger.Logger
 	importFactor func(context.Context) float64
-	customsLimit func(context.Context) float64
 }
 
 // New returns a PurchasingService ready for use. The inventory
@@ -79,12 +81,6 @@ func New(repo PurchaseRepository, inventorySvc stockReceiver, txm repositories.T
 		txm:    txm,
 		log:    log,
 	}
-}
-
-// SetImportLots injects the import-lot repository used for customs
-// grouping.
-func (s *PurchasingService) SetImportLots(lots ImportLotRepository) {
-	s.lots = lots
 }
 
 // SetProducts injects the product service used to auto-create products
@@ -100,17 +96,17 @@ func (s *PurchasingService) SetTreasury(cards cardCharger) {
 	s.cards = cards
 }
 
+// SetSuppliers injects the supplier service used to validate the
+// supplier of a manual order.
+func (s *PurchasingService) SetSuppliers(suppliers supplierGetter) {
+	s.suppliers = suppliers
+}
+
 // SetImportFactor injects a provider for the additive USD factor
 // (customs, freight, logistics) per order. When unset, the package
 // default importFactor is used.
 func (s *PurchasingService) SetImportFactor(fn func(context.Context) float64) {
 	s.importFactor = fn
-}
-
-// SetCustomsLimit injects a provider for the customs limit in USD per
-// import lot. When unset, the package default customs limit is used.
-func (s *PurchasingService) SetCustomsLimit(fn func(context.Context) float64) {
-	s.customsLimit = fn
 }
 
 // factor returns the active import factor.
@@ -121,16 +117,6 @@ func (s *PurchasingService) factor(ctx context.Context) float64 {
 		}
 	}
 	return defaultImportFactor
-}
-
-// limitUSD returns the active customs limit.
-func (s *PurchasingService) limitUSD(ctx context.Context) float64 {
-	if s.customsLimit != nil {
-		if l := s.customsLimit(ctx); l > 0 {
-			return l
-		}
-	}
-	return defaultCustomsLimitUSD
 }
 
 // realCostPEN computes the landed cost in PEN for an order bought in
@@ -154,17 +140,20 @@ type CreateItemInput struct {
 
 // CreateInput is the payload for Create. Every order is recorded in
 // USD and paid with the given credit card. A non-empty Number sets the
-// order number (fixed, like every generated one, it is not editable
-// after creation); an empty Number auto-generates the next sequence.
+// order number (fixed, like every generated one, it is only editable
+// through UpdateNumber); an empty Number auto-generates the next
+// sequence. Manual orders require a supplier; client orders set none.
 type CreateInput struct {
-	Number       string
-	CustomerID   *uuid.UUID
-	CreditCardID *uuid.UUID
-	ExchangeRate valueobjects.ExchangeRate
-	OrderDate    time.Time
-	ExpectedDate *time.Time
-	Notes        string
-	Items        []CreateItemInput
+	Number        string
+	CustomerID    *uuid.UUID
+	SupplierID    *uuid.UUID
+	PaymentMethod PurchasePaymentMethod
+	CreditCardID  *uuid.UUID
+	ExchangeRate  valueobjects.ExchangeRate
+	OrderDate     time.Time
+	ExpectedDate  *time.Time
+	Notes         string
+	Items         []CreateItemInput
 }
 
 // Create validates the input, resolves the line products, and persists
@@ -180,6 +169,15 @@ func (s *PurchasingService) Create(ctx context.Context, in CreateInput) (*Purcha
 	}
 	if in.CustomerID != nil && *in.CustomerID == uuid.Nil {
 		return nil, apperrors.Errorf(apperrors.ErrValidation, "customer id is invalid")
+	}
+	if in.SupplierID == nil || *in.SupplierID == uuid.Nil {
+		return nil, apperrors.Errorf(apperrors.ErrValidation, "supplier is required")
+	}
+	if in.PaymentMethod == "" {
+		in.PaymentMethod = DefaultPaymentMethod
+	}
+	if !in.PaymentMethod.Valid() {
+		return nil, apperrors.Errorf(apperrors.ErrValidation, "payment method is invalid")
 	}
 	if !in.ExchangeRate.Decimal().IsPositive() {
 		return nil, apperrors.Errorf(apperrors.ErrValidation, "exchange rate must be positive")
@@ -205,6 +203,15 @@ func (s *PurchasingService) Create(ctx context.Context, in CreateInput) (*Purcha
 
 	var out *PurchaseOrder
 	err := s.txm.WithinTransaction(ctx, func(ctx context.Context) error {
+		if s.suppliers != nil {
+			sup, err := s.suppliers.GetByID(ctx, *in.SupplierID)
+			if err != nil {
+				return err
+			}
+			if !sup.IsActive {
+				return apperrors.Errorf(apperrors.ErrConflict, "el proveedor está inactivo")
+			}
+		}
 		items := make([]*PurchaseOrderItem, 0, len(in.Items))
 		costUSD := valueobjects.Zero()
 		salePen := valueobjects.Zero()
@@ -260,22 +267,24 @@ func (s *PurchasingService) Create(ctx context.Context, in CreateInput) (*Purcha
 		}
 		now := time.Now().UTC()
 		po := &PurchaseOrder{
-			ID:           uuid.New(),
-			Number:       number,
-			OrderDate:    orderDate,
-			ExpectedDate: in.ExpectedDate,
-			Status:       enums.PurchaseStatusPending,
-			CurrencyCode: USD,
-			ExchangeRate: in.ExchangeRate,
-			Notes:        in.Notes,
-			CustomerID:   in.CustomerID,
-			CreditCardID: in.CreditCardID,
-			CostUSD:      costUSD,
-			SalePricePen: salePen,
-			RealCostPen:  s.realCostPEN(ctx, costUSD, in.ExchangeRate),
-			Items:        items,
-			CreatedAt:    now,
-			UpdatedAt:    now,
+			ID:            uuid.New(),
+			Number:        number,
+			OrderDate:     orderDate,
+			ExpectedDate:  in.ExpectedDate,
+			Status:        enums.PurchaseStatusPending,
+			CurrencyCode:  USD,
+			PaymentMethod: in.PaymentMethod,
+			ExchangeRate:  in.ExchangeRate,
+			Notes:         in.Notes,
+			CustomerID:    in.CustomerID,
+			SupplierID:    in.SupplierID,
+			CreditCardID:  in.CreditCardID,
+			CostUSD:       costUSD,
+			SalePricePen:  salePen,
+			RealCostPen:   s.realCostPEN(ctx, costUSD, in.ExchangeRate),
+			Items:         items,
+			CreatedAt:     now,
+			UpdatedAt:     now,
 		}
 		if err := po.Validate(); err != nil {
 			return err
@@ -500,17 +509,18 @@ func (s *PurchasingService) CreateClientOrder(ctx context.Context, customerID, s
 		}
 		now := time.Now().UTC()
 		po := &PurchaseOrder{
-			ID:           uuid.New(),
-			Number:       number,
-			OrderDate:    now,
-			Status:       enums.PurchaseStatusPending,
-			CurrencyCode: USD,
-			ExchangeRate: rate,
-			CustomerID:   &customerID,
-			Notes:        "pedido de cliente (venta " + saleID.String() + ")",
-			Items:        []*PurchaseOrderItem{},
-			CreatedAt:    now,
-			UpdatedAt:    now,
+			ID:            uuid.New(),
+			Number:        number,
+			OrderDate:     now,
+			Status:        enums.PurchaseStatusPending,
+			CurrencyCode:  USD,
+			PaymentMethod: DefaultPaymentMethod,
+			ExchangeRate:  rate,
+			CustomerID:    &customerID,
+			Notes:         "pedido de cliente (venta " + saleID.String() + ")",
+			Items:         []*PurchaseOrderItem{},
+			CreatedAt:     now,
+			UpdatedAt:     now,
 		}
 		for i, line := range lines {
 			prod, err := s.productByID.GetByID(ctx, line.ProductID)
@@ -558,12 +568,40 @@ func (s *PurchasingService) GetByID(ctx context.Context, id uuid.UUID) (*Purchas
 		return nil, err
 	}
 	po.Items = items
+	po.ProductsText = s.summarizeItems(items)
 	return po, nil
 }
 
-// List returns purchase orders matching the filter.
+// summarizeItems renders the order lines as the products-column text.
+func (s *PurchasingService) summarizeItems(items []*PurchaseOrderItem) string {
+	lines := make([]PurchaseLineSummary, 0, len(items))
+	for _, li := range items {
+		lines = append(lines, PurchaseLineSummary{Quantity: li.QuantityOrdered.String(), Name: li.Description})
+	}
+	return SummarizeLines(lines)
+}
+
+// List returns purchase orders matching the filter, enriched with the
+// supplier and products columns.
 func (s *PurchasingService) List(ctx context.Context, filter PurchaseFilter) (repositories.Page[*PurchaseOrder], error) {
-	return s.orders.List(ctx, filter)
+	page, err := s.orders.List(ctx, filter)
+	if err != nil {
+		return repositories.Page[*PurchaseOrder]{}, err
+	}
+	if len(page.Items) > 0 {
+		ids := make([]uuid.UUID, 0, len(page.Items))
+		for _, po := range page.Items {
+			ids = append(ids, po.ID)
+		}
+		summaries, err := s.orders.ListLineSummaries(ctx, ids)
+		if err != nil {
+			return repositories.Page[*PurchaseOrder]{}, err
+		}
+		for _, po := range page.Items {
+			po.ProductsText = SummarizeLines(summaries[po.ID])
+		}
+	}
+	return page, nil
 }
 
 // ListItems returns the lines of a purchase order.
@@ -571,205 +609,36 @@ func (s *PurchasingService) ListItems(ctx context.Context, purchaseOrderID uuid.
 	return s.orders.ListItems(ctx, purchaseOrderID)
 }
 
-// ImportLotInput is the payload for CreateImportLot.
-type ImportLotInput struct {
-	Description string
-	PurchaseIDs []uuid.UUID
-}
-
-// CreateImportLot creates a new import lot with the given orders and
-// returns the lot, its customs total in USD, and whether the total
-// exceeds the customs limit (a non-blocking warning).
-func (s *PurchasingService) CreateImportLot(ctx context.Context, in ImportLotInput) (*ImportLot, valueobjects.Money, bool, error) {
-	if err := s.requireLots(); err != nil {
-		return nil, valueobjects.Money{}, false, err
+// UpdateNumber changes the order number. Sequence numbers are
+// generated once and can be corrected through this method.
+func (s *PurchasingService) UpdateNumber(ctx context.Context, id uuid.UUID, number string) (*PurchaseOrder, error) {
+	number = strings.TrimSpace(number)
+	if number == "" {
+		return nil, apperrors.Errorf(apperrors.ErrValidation, "order number is required")
 	}
-	var out *ImportLot
-	var total valueobjects.Money
-	var overLimit bool
+	var out *PurchaseOrder
 	err := s.txm.WithinTransaction(ctx, func(ctx context.Context) error {
-		code, err := s.lots.NextCode(ctx)
+		po, err := s.orders.GetByID(ctx, id)
 		if err != nil {
 			return err
 		}
-		now := time.Now().UTC()
-		out = &ImportLot{
-			ID:          uuid.New(),
-			Code:        code,
-			Description: in.Description,
-			Status:      ImportLotStatusActive,
-			CreatedAt:   now,
-			UpdatedAt:   now,
-		}
-		if err := s.lots.Create(ctx, out); err != nil {
+		po.Number = number
+		po.UpdatedAt = time.Now().UTC()
+		if err := po.Validate(); err != nil {
 			return err
 		}
-		if err := s.lots.AddMembers(ctx, out.ID, in.PurchaseIDs); err != nil {
-			return err
-		}
-		total, err = s.lotTotalUSD(ctx, out.ID)
-		if err != nil {
-			return err
-		}
-		overLimit = s.overCustomsLimit(ctx, total)
-		return nil
-	})
-	if err != nil {
-		return nil, valueobjects.Money{}, false, err
-	}
-	return out, total, overLimit, nil
-}
-
-// AddToImportLot assigns purchase orders to an existing lot and
-// returns the updated customs total and over-limit warning.
-func (s *PurchasingService) AddToImportLot(ctx context.Context, lotID uuid.UUID, purchaseIDs []uuid.UUID) (valueobjects.Money, bool, error) {
-	if err := s.requireLots(); err != nil {
-		return valueobjects.Money{}, false, err
-	}
-	if len(purchaseIDs) == 0 {
-		return valueobjects.Money{}, false, apperrors.Errorf(apperrors.ErrValidation, "at least one purchase order is required")
-	}
-	var total valueobjects.Money
-	var overLimit bool
-	err := s.txm.WithinTransaction(ctx, func(ctx context.Context) error {
-		if _, err := s.lots.GetByID(ctx, lotID); err != nil {
-			return err
-		}
-		if err := s.lots.AddMembers(ctx, lotID, purchaseIDs); err != nil {
-			return err
-		}
-		t, err := s.lotTotalUSD(ctx, lotID)
-		if err != nil {
-			return err
-		}
-		total = t
-		overLimit = s.overCustomsLimit(ctx, total)
-		return nil
-	})
-	if err != nil {
-		return valueobjects.Money{}, false, err
-	}
-	return total, overLimit, nil
-}
-
-// RemoveFromImportLot unlinks a purchase order from a lot and returns
-// the updated customs total.
-func (s *PurchasingService) RemoveFromImportLot(ctx context.Context, lotID, purchaseID uuid.UUID) (valueobjects.Money, error) {
-	if err := s.requireLots(); err != nil {
-		return valueobjects.Money{}, err
-	}
-	var total valueobjects.Money
-	err := s.txm.WithinTransaction(ctx, func(ctx context.Context) error {
-		if err := s.lots.RemoveMember(ctx, lotID, purchaseID); err != nil {
-			return err
-		}
-		t, err := s.lotTotalUSD(ctx, lotID)
-		if err != nil {
-			return err
-		}
-		total = t
-		return nil
-	})
-	if err != nil {
-		return valueobjects.Money{}, err
-	}
-	return total, nil
-}
-
-// CloseImportLot marks a lot as closed. Closed lots keep their members
-// and history but are excluded from active customs tracking.
-func (s *PurchasingService) CloseImportLot(ctx context.Context, lotID uuid.UUID) (*ImportLot, error) {
-	if err := s.requireLots(); err != nil {
-		return nil, err
-	}
-	var out *ImportLot
-	err := s.txm.WithinTransaction(ctx, func(ctx context.Context) error {
-		lot, err := s.lots.GetByID(ctx, lotID)
-		if err != nil {
-			return err
-		}
-		if lot.Status != ImportLotStatusClosed {
-			lot.Status = ImportLotStatusClosed
-			lot.UpdatedAt = time.Now().UTC()
-			if err := s.lots.Update(ctx, lot); err != nil {
-				return err
+		if err := s.orders.Update(ctx, po); err != nil {
+			if errors.Is(err, repositories.ErrDuplicate) {
+				return apperrors.Errorf(apperrors.ErrConflict, "ya existe una orden con ese número")
 			}
+			return err
 		}
-		out = lot
+		out = po
 		return nil
 	})
 	if err != nil {
 		return nil, err
 	}
-	s.log.Info("import lot closed", "lot_id", lotID)
+	s.log.Info("purchase number updated", "po_id", id, "number", number)
 	return out, nil
-}
-
-// GetImportLot returns a lot with its customs total and over-limit
-// warning.
-func (s *PurchasingService) GetImportLot(ctx context.Context, lotID uuid.UUID) (*ImportLot, valueobjects.Money, bool, error) {
-	if err := s.requireLots(); err != nil {
-		return nil, valueobjects.Money{}, false, err
-	}
-	lot, err := s.lots.GetByID(ctx, lotID)
-	if err != nil {
-		return nil, valueobjects.Money{}, false, err
-	}
-	total, err := s.lotTotalUSD(ctx, lotID)
-	if err != nil {
-		return nil, valueobjects.Money{}, false, err
-	}
-	return lot, total, s.overCustomsLimit(ctx, total), nil
-}
-
-// ListImportLots returns import lots matching the filter.
-func (s *PurchasingService) ListImportLots(ctx context.Context, filter ImportLotFilter) (repositories.Page[*ImportLot], error) {
-	if err := s.requireLots(); err != nil {
-		return repositories.Page[*ImportLot]{}, err
-	}
-	return s.lots.List(ctx, filter)
-}
-
-// ListLotMembers returns the purchase orders of a lot.
-func (s *PurchasingService) ListLotMembers(ctx context.Context, lotID uuid.UUID) ([]*PurchaseOrder, error) {
-	if err := s.requireLots(); err != nil {
-		return nil, err
-	}
-	return s.lots.ListPurchasesForLot(ctx, lotID)
-}
-
-// requireLots fails with a clear error when the import-lot repository
-// was never injected.
-func (s *PurchasingService) requireLots() error {
-	if s.lots == nil {
-		return derrors.New("INTERNAL", "import lots are not configured")
-	}
-	return nil
-}
-
-// lotTotalUSD sums the cost_usd of the lot's member orders that are
-// not cancelled.
-func (s *PurchasingService) lotTotalUSD(ctx context.Context, lotID uuid.UUID) (valueobjects.Money, error) {
-	orders, err := s.lots.ListPurchasesForLot(ctx, lotID)
-	if err != nil {
-		return valueobjects.Money{}, err
-	}
-	total := valueobjects.Zero()
-	for _, po := range orders {
-		if po.IsCancelled() {
-			continue
-		}
-		total = total.Add(po.CostUSD)
-	}
-	return total, nil
-}
-
-// overCustomsLimit reports whether a lot total exceeds the customs
-// limit. It is a warning only; the UI confirms.
-func (s *PurchasingService) overCustomsLimit(ctx context.Context, total valueobjects.Money) bool {
-	limit, err := valueobjects.MoneyFromDecimal(decimal.NewFromFloat(s.limitUSD(ctx)))
-	if err != nil {
-		return false
-	}
-	return total.GreaterThan(limit)
 }

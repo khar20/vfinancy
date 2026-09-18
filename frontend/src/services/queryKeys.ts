@@ -27,11 +27,10 @@ export const queryKeys = {
     list: (q: unknown) => ['purchasing', 'list', q] as const,
     detail: (id: string) => ['purchasing', 'detail', id] as const,
   },
-  importLots: {
-    all: ['importLots'] as const,
-    list: (q: unknown) => ['importLots', 'list', q] as const,
-    detail: (id: string) => ['importLots', 'detail', id] as const,
-    members: (id: string) => ['importLots', 'members', id] as const,
+  suppliers: {
+    all: ['suppliers'] as const,
+    list: (q: unknown) => ['suppliers', 'list', q] as const,
+    options: ['suppliers', 'options'] as const,
   },
   inventory: {
     all: ['inventory'] as const,

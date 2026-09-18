@@ -91,13 +91,11 @@ export function ProductFormDialog({
             <>
               <DialogBody>
                 <TextField name="description" label="Descripción" required />
-                {!isEditing && (
-                  <TextField
-                    name="sku"
-                    label="SKU"
-                    description="Opcional: déjalo vacío para generarlo automáticamente. No se puede cambiar después."
-                  />
-                )}
+                <TextField
+                  name="sku"
+                  label="SKU"
+                  description="Opcional: déjalo vacío para generarlo automáticamente."
+                />
                 <SelectField name="unitCode" label="Unidad de medida" required options={unitCodes} clearable={false} />
                 <MoneyField name="costUsd" label="Costo (USD)" currency="USD" description="Costo de adquisición en dólares." />
                 <MoneyField name="salePrice" label="Precio de venta (PEN)" currency="PEN" description="Precio sugerido al vender en soles." />

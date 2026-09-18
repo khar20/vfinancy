@@ -113,11 +113,20 @@ func (r *inventoryBatchRepository) List(ctx context.Context, filter inventory.In
 		clauses = append(clauses, fmt.Sprintf("purchase_order_item_id = $%d", len(args)+1))
 		args = append(args, *filter.PurchaseLineID)
 	}
-	if filter.OnlyActive {
-		clauses = append(clauses, "status = 'active'")
-	}
-	if filter.OnlyClearance {
-		clauses = append(clauses, "is_clearance = TRUE")
+	if len(filter.Statuses) > 0 {
+		placeholders := make([]string, 0, len(filter.Statuses))
+		for _, s := range filter.Statuses {
+			placeholders = append(placeholders, fmt.Sprintf("$%d", len(args)+1))
+			args = append(args, s)
+		}
+		clauses = append(clauses, "status IN ("+strings.Join(placeholders, ", ")+")")
+	} else {
+		if filter.OnlyActive {
+			clauses = append(clauses, "status = 'active'")
+		}
+		if filter.OnlyClearance {
+			clauses = append(clauses, "is_clearance = TRUE")
+		}
 	}
 	if search := strings.TrimSpace(filter.Search); search != "" {
 		pattern := "%" + strings.ToLower(search) + "%"

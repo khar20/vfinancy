@@ -150,11 +150,13 @@ func TestCreateRequiresCreditCard(t *testing.T) {
 func TestCreateChargesCardWithOrderCost(t *testing.T) {
 	rate, _ := valueobjects.ExchangeRateFromDecimal(decimal.NewFromInt(3))
 	cardID := uuid.New()
+	supplierID := uuid.New()
 	orders := &fakeOrders{}
 	treasury := &fakeTreasury{}
 	svc := newService(orders, treasury, &fakeStock{})
 	po, err := svc.Create(context.Background(), purchasing.CreateInput{
 		CreditCardID: &cardID,
+		SupplierID:   &supplierID,
 		ExchangeRate: rate,
 		Items: []purchasing.CreateItemInput{{
 			Description:  "Cosa",

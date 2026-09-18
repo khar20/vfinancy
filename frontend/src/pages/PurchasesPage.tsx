@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Package, Ban, Plus, Download, Boxes, Filter, Eye } from 'lucide-react';
+import { Package, Ban, Plus, Download, Users, Filter, Eye, Pencil } from 'lucide-react';
+import { z } from 'zod';
 import { PageContainer, PageHeader, StatBand } from '@/components/layout';
 import { StatCard } from '@/components/card';
 import { DataTable, type Column } from '@/components/table';
@@ -8,9 +9,10 @@ import { Badge } from '@/components/badge';
 import { EmptyState, Spinner } from '@/components/feedback';
 import { Button } from '@/components/button';
 import { DateInput, Label, SearchInput } from '@/components/input';
-import { CancelDialog } from '@/components/dialog';
+import { CancelDialog, Dialog, DialogBody, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/dialog';
 import { Drawer, ListRow, RowActions, type RowAction } from '@/components/misc';
 import { useDebounce } from '@/hooks/useDebounce';
+import { Form, TextField } from '@/components/form';
 import {
   Select,
   SelectContent,
@@ -23,14 +25,15 @@ import {
   useCancelPurchase,
   useMarkPurchaseReceived,
   useMarkPurchaseFaulty,
+  useUpdatePurchaseNumber,
 } from '@/features/purchasing/hooks/usePurchases';
 import { PurchaseFormDialog } from '@/features/purchasing/components/PurchaseFormDialog';
-import { ImportLotsDialog } from '@/features/purchasing/components/ImportLotsDialog';
+import { SuppliersDrawer } from '@/features/suppliers/components/SuppliersDrawer';
 import { MarkReceivedDialog } from '@/features/purchasing/components/MarkReceivedDialog';
 import { wailsClient } from '@/services/bindings';
 import { queryKeys } from '@/services/queryKeys';
-import type { CreditCardDTO, ImportLotDTO } from '@/services/wails-types';
-import type { Purchase } from '@/types/domain';
+import type { CreditCardDTO } from '@/services/wails-types';
+import type { Purchase } from '@/services/purchasing';
 import { formatCurrency, formatDate, formatNumber } from '@/utils/format';
 import { useNotificationStore } from '@/stores/notification';
 
@@ -38,6 +41,12 @@ const statusMap: Record<string, { variant: 'success' | 'warning' | 'info' | 'des
   pending: { variant: 'warning', label: 'Pendiente' },
   received: { variant: 'info', label: 'Recibida' },
   cancelled: { variant: 'destructive', label: 'Anulada' },
+};
+
+const paymentMethodLabels: Record<string, string> = {
+  card: 'Tarjeta de crédito',
+  cash: 'Efectivo',
+  digital_wallet: 'Billetera digital',
 };
 
 const CANCEL_REASONS = ['Mal estado', 'Error en el ingreso', 'Pedido duplicado', 'Cancelado por el proveedor'];
@@ -51,6 +60,17 @@ const columns: Column<Purchase>[] = [
     cell: (row) => <span className="fw-medium tabular">{row.number}</span>,
   },
   { id: 'date', header: 'Fecha', cell: (row) => <span className="muted">{formatDate(row.date)}</span> },
+  {
+    id: 'supplierName',
+    header: 'Proveedor',
+    sortable: true,
+    cell: (row) => row.supplierName || '—',
+  },
+  {
+    id: 'productsText',
+    header: 'Productos',
+    cell: (row) => row.productsText || '—',
+  },
   {
     id: 'realCostPen',
     header: 'Costo real (PEN)',
@@ -81,26 +101,77 @@ const columns: Column<Purchase>[] = [
   },
 ];
 
+const numberSchema = z.object({
+  number: z.string().trim().min(1, 'Ingrese el número'),
+});
+
+function EditNumberDialog({ open, onOpenChange, purchase }: { open: boolean; onOpenChange: (open: boolean) => void; purchase: Purchase | null }) {
+  const push = useNotificationStore((s) => s.push);
+  const updateNumber = useUpdatePurchaseNumber();
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent size="sm">
+        <DialogHeader>
+          <DialogTitle>Editar número de orden</DialogTitle>
+        </DialogHeader>
+        <Form<{ number: string }>
+          key={purchase?.id ?? 'number'}
+          schema={numberSchema}
+          defaultValues={{ number: purchase?.number ?? '' }}
+          onSubmit={(values) => {
+            if (!purchase) return;
+            updateNumber.mutate(
+              { id: purchase.id, number: values.number },
+              {
+                onSuccess: (updated) => {
+                  push({ title: 'Número actualizado', description: updated.number, variant: 'success' });
+                  onOpenChange(false);
+                },
+                onError: (err: unknown) => {
+                  push({ title: 'No se pudo actualizar el número', description: err instanceof Error ? err.message : undefined, variant: 'destructive' });
+                },
+              },
+            );
+          }}
+        >
+          <DialogBody>
+            <TextField name="number" label="Número de orden" required autoFocus />
+          </DialogBody>
+          <DialogFooter>
+            <Button variant="outline" type="button" onClick={() => onOpenChange(false)} disabled={updateNumber.isPending}>
+              Cancelar
+            </Button>
+            <Button type="submit" loading={updateNumber.isPending}>
+              Guardar
+            </Button>
+          </DialogFooter>
+        </Form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export function PurchasesPage() {
   const [searchInput, setSearchInput] = useState('');
   const search = useDebounce(searchInput);
   const [statusFilter, setStatusFilter] = useState('all');
-  const [importLotId, setImportLotId] = useState('');
   const [creditCardId, setCreditCardId] = useState('');
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
-  const { data, isLoading, isError, error, refetch } = usePurchases({ search, importLotId, creditCardId, from, to });
+  const { data, isLoading, isError, error, refetch } = usePurchases({ search, creditCardId, from, to });
   const cancel = useCancelPurchase();
   const markReceived = useMarkPurchaseReceived();
   const markFaulty = useMarkPurchaseFaulty();
   const push = useNotificationStore((s) => s.push);
 
   const [formOpen, setFormOpen] = useState(false);
-  const [lotsOpen, setLotsOpen] = useState(false);
+  const [suppliersOpen, setSuppliersOpen] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [cancelTarget, setCancelTarget] = useState<Purchase | null>(null);
   const [receivedTarget, setReceivedTarget] = useState<Purchase | null>(null);
   const [detailTarget, setDetailTarget] = useState<Purchase | null>(null);
+  const [numberEditTarget, setNumberEditTarget] = useState<Purchase | null>(null);
 
   const detailQuery = useQuery({
     queryKey: ['purchase-detail', detailTarget?.id],
@@ -108,20 +179,14 @@ export function PurchasesPage() {
     enabled: Boolean(detailTarget),
   });
 
-  const lotsQuery = useQuery({
-    queryKey: queryKeys.importLots.list({ page: 1, pageSize: 100, search: '' }),
-    queryFn: () => wailsClient.listImportLots({ page: 1, pageSize: 100 }, ''),
-    enabled: filtersOpen,
-  });
   const cardsQuery = useQuery({
     queryKey: queryKeys.treasury.creditCards,
     queryFn: () => wailsClient.listCreditCards(),
     enabled: filtersOpen,
   });
 
-  const activeFilterCount = [importLotId, creditCardId, from, to].filter(Boolean).length;
+  const activeFilterCount = [creditCardId, from, to].filter(Boolean).length;
   const clearFilters = () => {
-    setImportLotId('');
     setCreditCardId('');
     setFrom('');
     setTo('');
@@ -144,6 +209,7 @@ export function PurchasesPage() {
     const receivable = !row.arrivalDate && !row.faulty && row.status !== 'cancelled';
     const actions: RowAction[] = [
       { label: 'Ver detalle', icon: Eye, onSelect: () => setDetailTarget(row) },
+      { label: 'Editar número', icon: Pencil, onSelect: () => setNumberEditTarget(row) },
     ];
     if (receivable) {
       actions.push({
@@ -186,8 +252,8 @@ export function PurchasesPage() {
         subtitle="Órdenes de compra a proveedores"
         actions={
           <div className="hstack hstack--sm">
-            <Button variant="outline" onClick={() => setLotsOpen(true)}>
-              <Boxes /> Lotes
+            <Button variant="outline" onClick={() => setSuppliersOpen(true)}>
+              <Users /> Proveedores
             </Button>
             <Button onClick={openCreate}>
               <Plus /> Nueva compra
@@ -263,7 +329,7 @@ export function PurchasesPage() {
         open={filtersOpen}
         onOpenChange={setFiltersOpen}
         title="Filtros avanzados"
-        description="Combina lote, rango de fechas y tarjeta de crédito."
+        description="Combina rango de fechas y tarjeta de crédito."
         footer={
           <div className="hstack hstack--sm">
             <Button variant="outline" onClick={clearFilters} disabled={activeFilterCount === 0}>
@@ -274,26 +340,6 @@ export function PurchasesPage() {
         }
       >
         <div className="stack">
-          <div className="field">
-            <Label htmlFor="purchase-filter-lot">Lote de importación</Label>
-            <Select
-              items={[{ value: '', label: 'Todos los lotes' }, ...(lotsQuery.data?.items ?? []).map((l: ImportLotDTO) => ({ value: l.id, label: `${l.code} · ${l.description || 'sin descripción'}` }))]}
-              value={importLotId}
-              onValueChange={(v) => setImportLotId(v ?? '')}
-            >
-              <SelectTrigger id="purchase-filter-lot" aria-label="Filtrar por lote">
-                <SelectValue placeholder="Todos los lotes" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="">Todos los lotes</SelectItem>
-                {(lotsQuery.data?.items ?? []).map((l: ImportLotDTO) => (
-                  <SelectItem key={l.id} value={l.id}>
-                    {l.code} · {l.description || 'sin descripción'}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
           <div className="field">
             <Label>Rango de fechas</Label>
             <div className="hstack hstack--sm">
@@ -325,7 +371,14 @@ export function PurchasesPage() {
       </Drawer>
 
       <PurchaseFormDialog open={formOpen} onOpenChange={setFormOpen} />
-      <ImportLotsDialog open={lotsOpen} onOpenChange={setLotsOpen} />
+      <SuppliersDrawer open={suppliersOpen} onOpenChange={setSuppliersOpen} />
+      <EditNumberDialog
+        open={!!numberEditTarget}
+        onOpenChange={(open) => {
+          if (!open) setNumberEditTarget(null);
+        }}
+        purchase={numberEditTarget}
+      />
 
       <MarkReceivedDialog
         open={!!receivedTarget}
@@ -407,6 +460,16 @@ export function PurchasesPage() {
                   <div className="doc-summary__meta">Tipo</div>
                   <div className="doc-summary__amount">
                     {detailQuery.data.customerId ? 'Cliente a pedido' : 'General (stock)'}
+                  </div>
+                </div>
+                <div className="doc-summary__row">
+                  <div className="doc-summary__meta">Proveedor</div>
+                  <div className="doc-summary__amount">{detailQuery.data.supplierName || '—'}</div>
+                </div>
+                <div className="doc-summary__row">
+                  <div className="doc-summary__meta">Forma de pago</div>
+                  <div className="doc-summary__amount">
+                    {paymentMethodLabels[detailQuery.data.paymentMethod] ?? detailQuery.data.paymentMethod}
                   </div>
                 </div>
                 <div className="doc-summary__row">

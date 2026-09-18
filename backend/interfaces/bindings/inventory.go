@@ -12,7 +12,7 @@ type PreferencesDTO struct {
 	ClearanceWarningDays int     `json:"clearanceWarningDays"`
 	ImportCostFactor     float64 `json:"importCostFactor"`
 	FallbackExchangeRate float64 `json:"fallbackExchangeRate"`
-	CustomsLimitUSD      float64 `json:"customsLimitUSD"`
+	PurchaseLimitUSD     float64 `json:"purchaseLimitUSD"`
 	BackupFolder         string  `json:"backupFolder"`
 	BackupFrequency      string  `json:"backupFrequency"`
 }
@@ -27,14 +27,14 @@ func (a *App) preferencesDTO(ctx context.Context) (PreferencesDTO, error) {
 		ClearanceWarningDays: prefs.ClearanceWarningDays,
 		ImportCostFactor:     prefs.ImportCostFactor,
 		FallbackExchangeRate: prefs.FallbackExchangeRate,
-		CustomsLimitUSD:      prefs.CustomsLimitUSD,
+		PurchaseLimitUSD:     prefs.PurchaseLimitUSD,
 		BackupFolder:         prefs.BackupFolder,
 		BackupFrequency:      prefs.BackupFrequency,
 	}, nil
 }
 
 // GetPreferences returns the business parameters (edge-case driven:
-// clearance days, import cost factor, fallback rate, customs cap,
+// clearance days, import cost factor, fallback rate, purchase cap,
 // backup policy).
 func (a *App) GetPreferences() (PreferencesDTO, error) {
 	return a.preferencesDTO(a.Context())
@@ -92,14 +92,17 @@ type ProductRefDTO struct {
 	Stock       float64 `json:"stock"`
 }
 
-// ListInventoryBatches returns the kardex batches, optionally filtered
-// to the clearance view.
-func (a *App) ListInventoryBatches(req PaginationRequest, onlyClearance bool, search string) (PageResult, error) {
+// ListInventoryBatches returns the kardex batches. status filters to
+// the voided register, or to the active+depleted stock otherwise.
+func (a *App) ListInventoryBatches(req PaginationRequest, status string, search string) (PageResult, error) {
+	statuses := []string{"active", "depleted"}
+	if status == "voided" {
+		statuses = []string{"voided"}
+	}
 	page, err := a.inventorySvc.ListBatches(a.Context(), inventory.InventoryBatchFilter{
-		OnlyActive:    true,
-		OnlyClearance: onlyClearance,
-		Search:        search,
-		PageRequest:   req.toPageRequest(),
+		Statuses:    statuses,
+		Search:      search,
+		PageRequest: req.toPageRequest(),
 	})
 	if err != nil {
 		return PageResult{}, err

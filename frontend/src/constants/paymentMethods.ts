@@ -10,3 +10,16 @@ export const PaymentMethodOptions = Object.entries(PaymentMethods).map(([value, 
   value,
   label,
 }));
+
+type PurchasePaymentMethodCode = 'card' | 'cash' | 'digital_wallet';
+
+const PurchasePaymentMethods: Record<PurchasePaymentMethodCode, string> = {
+  card: 'Tarjeta de crédito',
+  cash: 'Efectivo',
+  digital_wallet: 'Billetera digital',
+};
+
+export const PurchasePaymentMethodOptions = Object.entries(PurchasePaymentMethods).map(([value, label]) => ({
+  value,
+  label,
+}));

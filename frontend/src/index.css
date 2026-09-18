@@ -1095,6 +1095,12 @@ pre {
   gap: 8px;
 }
 
+.dialog-subheader {
+  margin: 0.25rem 0 0;
+  font-size: 0.8rem;
+  color: var(--color-muted-fg);
+}
+
 /* alert dialog */
 .alert-header {
   display: flex;
@@ -1602,6 +1608,10 @@ pre {
 
 .datatable-table tr.clickable {
   cursor: pointer;
+}
+
+.datatable-table tr.row-dimmed td {
+  opacity: 0.55;
 }
 
 .datatable-table tr.clickable:focus-visible {

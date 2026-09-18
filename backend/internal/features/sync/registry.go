@@ -23,6 +23,7 @@ var syncedTables = []TableMeta{
 	{Name: "customers", PKs: []string{"id"}, TimeColumn: "updated_at"},
 	{Name: "products", PKs: []string{"id"}, TimeColumn: "updated_at", Bools: []string{"is_active"}},
 	{Name: "credit_cards", PKs: []string{"id"}, TimeColumn: "updated_at", Bools: []string{"is_active"}},
+	{Name: "suppliers", PKs: []string{"id"}, TimeColumn: "updated_at", Bools: []string{"is_active"}},
 	{Name: "purchase_orders", PKs: []string{"id"}, TimeColumn: "updated_at", Bools: []string{"faulty"}},
 	{Name: "purchase_order_items", PKs: []string{"id"}, TimeColumn: "created_at"},
 	{Name: "inventory_batches", PKs: []string{"id"}, TimeColumn: "updated_at", Bools: []string{"is_clearance"}},
@@ -31,8 +32,6 @@ var syncedTables = []TableMeta{
 	{Name: "sale_items", PKs: []string{"id"}, TimeColumn: "created_at"},
 	{Name: "customer_payments", PKs: []string{"id"}, TimeColumn: "updated_at"},
 	{Name: "customer_payment_allocations", PKs: []string{"id"}, TimeColumn: "created_at"},
-	{Name: "import_lots", PKs: []string{"id"}, TimeColumn: "updated_at"},
-	{Name: "import_lot_purchase_orders", PKs: []string{"import_lot_id", "purchase_order_id"}, TimeColumn: "added_at"},
 	{Name: "shipments", PKs: []string{"id"}, TimeColumn: "updated_at"},
 }
 
