@@ -15,8 +15,8 @@ interface DateInputProps extends Omit<React.InputHTMLAttributes<HTMLInputElement
 export const DateInput = React.forwardRef<HTMLInputElement, DateInputProps>(
   ({ className, invalid, value, placeholder, onClear, ...props }, ref) => (
     <span className={cx('date-input', invalid && 'date-input--invalid', className)}>
-      <span className="date-input__display" aria-hidden="true">
-        {value ? formatDate(value as string) : placeholder ?? ''}
+      <span className={cx('date-input__display', !value && placeholder && 'date-input__display--placeholder')} aria-hidden="true">
+        {value ? formatDate(value as string) : placeholder}
       </span>
       <input
         type="date"

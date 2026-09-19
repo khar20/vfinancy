@@ -19,7 +19,7 @@ const defaultLayout: DashboardGridItem[] = [
 export function DashboardPage() {
   return (
     <PageContainer>
-      <PageHeader title="Inicio" subtitle="Resumen financiero del negocio" />
+      <PageHeader title="Inicio" />
       <DashboardGrid items={defaultLayout} />
     </PageContainer>
   );

@@ -119,10 +119,7 @@ export function SecuritySection() {
   };
 
   return (
-    <Section
-      title="Seguridad"
-      description="Protege el acceso a la aplicación en este dispositivo."
-    >
+    <Section title="Seguridad">
       <Card>
         <CardHeader>
           <CardTitle>Contraseña local</CardTitle>

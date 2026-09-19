@@ -130,7 +130,6 @@ export function ShipmentsPage() {
     <PageContainer>
       <PageHeader
         title="Envíos"
-        subtitle="Despachos a clientes con código de seguimiento"
         actions={
           <Button onClick={openCreate}>
             <Plus /> Nuevo envío
@@ -138,7 +137,7 @@ export function ShipmentsPage() {
         }
       />
 
-      <Section title="Envíos" description="Lista de envíos registrados, su estado y código para compartir.">
+      <Section title="Envíos">
         {isLoading ? (
           <div className="page-loader">
             <Spinner />

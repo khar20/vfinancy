@@ -49,12 +49,17 @@ const PurchaseFormSchema = z
     customerId: z.string(),
     supplierId: z.string().min(1, 'Seleccione el proveedor'),
     paymentMethod: z.string().min(1, 'Seleccione la forma de pago'),
-    creditCardId: z.string().min(1, 'Seleccione la tarjeta de crédito'),
+    creditCardId: z.string().optional(),
     exchangeRate: z.number().min(0.01, 'Tipo de cambio inválido'),
     orderDate: z.string().min(1, 'Fecha requerida').regex(/^\d{4}-\d{2}-\d{2}$/, 'Formato de fecha inválido'),
     expectedDate: z.string(),
     notes: z.string().optional(),
     items: z.array(lineSchema).min(1, 'Agregue al menos una línea'),
+  })
+  .superRefine((v, ctx) => {
+    if (v.paymentMethod === 'card' && !v.creditCardId) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['creditCardId'], message: 'Seleccione la tarjeta de crédito' });
+    }
   });
 
 type PurchaseFormValues = z.infer<typeof PurchaseFormSchema>;
@@ -84,7 +89,6 @@ function CustomerField({ customers, createCustomer }: { customers: SelectOption[
     <SelectField
       name="customerId"
       label="Cliente"
-      description="Opcional: pedido para un cliente."
       clearable
       options={customers}
       createOption={createCustomer}
@@ -108,6 +112,8 @@ function OrderDataStep({ cardOptions, customerOptions, cardsQuery, rateQuery, su
   customerCreateOption: CreateSelectOption;
   supplierCreateOption: CreateSelectOption;
 }) {
+  const { control, setValue } = useFormContext<PurchaseFormValues>();
+  const paymentMethod = useWatch<PurchaseFormValues, 'paymentMethod'>({ control, name: 'paymentMethod' });
   return (
     <div className="stack">
       <ExchangeRateSeed rate={rateQuery.data?.rate} />
@@ -123,35 +129,39 @@ function OrderDataStep({ cardOptions, customerOptions, cardsQuery, rateQuery, su
         <CustomerField customers={customerOptions} createCustomer={customerCreateOption} />
       </div>
       <div className="form-grid">
-        <SelectField
-          name="creditCardId"
-          label="Tarjeta de crédito (pago en USD)"
-          required
-          description="Pago obligatorio con tarjeta"
-          placeholder={cardsQuery.isLoading ? 'Cargando tarjetas…' : 'Seleccione la tarjeta…'}
-          options={cardOptions}
-          loading={cardsQuery.isLoading}
-          createOption={cardCreateOption}
-        />
+        {paymentMethod === 'card' && (
+          <SelectField
+            name="creditCardId"
+            label="Tarjeta de crédito"
+            required
+            placeholder={cardsQuery.isLoading ? 'Cargando tarjetas…' : 'Seleccione la tarjeta…'}
+            options={cardOptions}
+            loading={cardsQuery.isLoading}
+            createOption={cardCreateOption}
+          />
+        )}
         <SelectField
           name="paymentMethod"
           label="Forma de pago"
           required
           placeholder="Seleccione…"
           options={PurchasePaymentMethodOptions}
+          onChange={(v) => {
+            if (v !== 'card') setValue('creditCardId', '');
+          }}
         />
       </div>
-      {cardOptions.length === 0 && !cardsQuery.isLoading && (
+      {paymentMethod === 'card' && cardOptions.length === 0 && !cardsQuery.isLoading && (
         <p className="field__error" role="alert">Cree una tarjeta en Tesorería</p>
       )}
       <div className="form-grid">
         <TextField
           name="number"
           label="Número de orden"
-          description="Opcional: déjalo vacío para generarlo automáticamente. Podrás cambiarlo después."
+          description="Se genera automáticamente si lo dejas vacío."
         />
         <DateField name="orderDate" label="Fecha de pedido" required />
-        <DateField name="expectedDate" label="Fecha estimada" description="Opcional" />
+        <DateField name="expectedDate" label="Fecha estimada" />
       </div>
       <div className="form-grid">
         <div className="field">
@@ -165,7 +175,7 @@ function OrderDataStep({ cardOptions, customerOptions, cardsQuery, rateQuery, su
             <label className="input-label">Tipo de cambio (USD→PEN)</label>
             {rateQuery.data?.isFallback && <Badge variant="warning">Modo contingencia</Badge>}
           </div>
-          <NumberField name="exchangeRate" min={0.01} step={0.01} description={rateQuery.isLoading ? 'Cargando tipo de cambio…' : 'T.C. de referencia editable'} required />
+          <NumberField name="exchangeRate" min={0.01} step={0.01} description={rateQuery.isLoading ? 'Cargando tipo de cambio…' : undefined} required />
         </div>
       </div>
     </div>
@@ -224,7 +234,6 @@ function ItemsStep({ products }: { products: ProductCostOption[] }) {
               <NumberField
                 name={`items.${index}.salePricePen` as Path<PurchaseFormValues>}
                 label="Precio de venta (PEN)"
-                description="Precio sugerido al vender en soles."
                 min={0}
                 step={0.01}
               />
@@ -362,7 +371,7 @@ const steps = [
         customerId: values.customerId,
         supplierId: values.supplierId,
         paymentMethod: (values.paymentMethod as 'card' | 'cash' | 'digital_wallet'),
-        creditCardId: values.creditCardId,
+        creditCardId: values.creditCardId ?? '',
         orderDate: values.orderDate,
         expectedDate: values.expectedDate,
         exchangeRate: values.exchangeRate,

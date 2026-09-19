@@ -59,7 +59,6 @@ export function SuppliersDrawer({ open, onOpenChange }: SuppliersDrawerProps) {
       open={open}
       onOpenChange={onOpenChange}
       title="Proveedores"
-      description="Catálogo de proveedores usados en las órdenes de compra."
       footer={
         <Button onClick={openCreate} style={{ width: '100%' }}>
           <Plus /> Nuevo proveedor

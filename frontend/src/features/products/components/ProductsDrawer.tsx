@@ -97,8 +97,8 @@ export function ProductFormDialog({
                   description="Opcional: déjalo vacío para generarlo automáticamente."
                 />
                 <SelectField name="unitCode" label="Unidad de medida" required options={unitCodes} clearable={false} />
-                <MoneyField name="costUsd" label="Costo (USD)" currency="USD" description="Costo de adquisición en dólares." />
-                <MoneyField name="salePrice" label="Precio de venta (PEN)" currency="PEN" description="Precio sugerido al vender en soles." />
+                <MoneyField name="costUsd" label="Costo (USD)" currency="USD" />
+                <MoneyField name="salePrice" label="Precio de venta (PEN)" currency="PEN" />
               </DialogBody>
               <DialogFooter>
                 <Button variant="outline" type="button" onClick={() => onOpenChange(false)} disabled={pending}>
@@ -136,7 +136,6 @@ export function ProductsDrawer({ open, onOpenChange }: { open: boolean; onOpenCh
         open={open}
         onOpenChange={onOpenChange}
         title="Productos"
-        description="Catálogo comercial creado desde las órdenes de compra."
         footer={
           <Button
             onClick={() => {

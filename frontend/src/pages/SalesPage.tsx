@@ -152,7 +152,6 @@ export function SalesPage() {
     <PageContainer>
       <PageHeader
         title="Ventas"
-        subtitle="Documentos de venta y estado de cobranza"
         actions={
           <div className="hstack hstack--sm">
             <Button variant="outline" onClick={() => setCustomersOpen(true)}>

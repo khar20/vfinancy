@@ -53,10 +53,7 @@ function BusinessTab() {
   };
 
   return (
-    <Section
-      title="Parámetros de negocio"
-      description="Controlan el remate, el costo de importación y el tope de compra."
-    >
+    <Section title="Parámetros de negocio">
       <Form<BusinessValues> key={JSON.stringify(defaults)} schema={businessSchema} defaultValues={defaults} onSubmit={save}>
         {({ formState }) => (
           <div className="stack" style={{ maxWidth: '26rem' }}>
@@ -185,10 +182,7 @@ function AuthTab() {
 
   return (
     <>
-      <Section
-        title="Seguridad"
-        description="Contraseña local y clave de recuperación del dispositivo."
-      >
+      <Section title="Seguridad">
         <Button onClick={() => setAuthOpen(true)}>
           <ShieldCheck /> Administrar autenticación
         </Button>
@@ -197,7 +191,6 @@ function AuthTab() {
         open={authOpen}
         onOpenChange={setAuthOpen}
         title="Autenticación"
-        description="Contraseña local y clave de recuperación."
       >
         <SecuritySection />
       </Drawer>
@@ -208,7 +201,7 @@ function AuthTab() {
 export function SettingsPage() {
   return (
     <PageContainer>
-      <PageHeader title="Configuración" subtitle="Administra las preferencias de tu operación." />
+      <PageHeader title="Configuración" />
       <div className="stack" style={{ maxWidth: '52rem' }}>
         <BusinessTab />
         <CompanyTab />

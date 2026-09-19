@@ -253,7 +253,6 @@ export function PurchasesPage() {
     <PageContainer>
       <PageHeader
         title="Compras"
-        subtitle="Órdenes de compra a proveedores"
         actions={
           <div className="hstack hstack--sm">
             <Button variant="outline" onClick={() => setSuppliersOpen(true)}>
@@ -334,7 +333,6 @@ export function PurchasesPage() {
         open={filtersOpen}
         onOpenChange={setFiltersOpen}
         title="Filtros avanzados"
-        description="Combina rango de fechas y tarjeta de crédito."
         footer={
           <div className="hstack hstack--sm">
             <Button variant="outline" onClick={clearFilters} disabled={activeFilterCount === 0}>

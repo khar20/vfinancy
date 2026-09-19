@@ -1453,11 +1453,6 @@ pre {
   color: var(--text-primary);
 }
 
-.stat-card__hint {
-  font-size: 0.75rem;
-  color: var(--text-muted);
-}
-
 .stat-card__badges {
   display: flex;
   flex-wrap: wrap;
@@ -2220,6 +2215,10 @@ pre {
 
 .date-input__display:empty::before {
   content: attr(data-placeholder);
+  color: var(--text-muted);
+}
+
+.date-input__display--placeholder {
   color: var(--text-muted);
 }
 

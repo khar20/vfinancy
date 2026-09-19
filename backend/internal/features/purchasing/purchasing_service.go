@@ -159,12 +159,18 @@ type CreateInput struct {
 // Create validates the input, resolves the line products, and persists
 // the order with its items — all in one transaction. CostUSD is the sum
 // of the line totals, RealCostPen is (CostUSD + import factor) * rate,
-// and the full order cost is charged to the credit card.
+// and, when paid by credit card, the full order cost is charged to it.
 func (s *PurchasingService) Create(ctx context.Context, in CreateInput) (*PurchaseOrder, error) {
 	if len(in.Items) == 0 {
 		return nil, apperrors.Errorf(apperrors.ErrValidation, "purchase order must have at least one item")
 	}
-	if in.CreditCardID == nil || *in.CreditCardID == uuid.Nil {
+	if in.PaymentMethod == "" {
+		in.PaymentMethod = DefaultPaymentMethod
+	}
+	if !in.PaymentMethod.Valid() {
+		return nil, apperrors.Errorf(apperrors.ErrValidation, "payment method is invalid")
+	}
+	if in.PaymentMethod == PaymentCard && (in.CreditCardID == nil || *in.CreditCardID == uuid.Nil) {
 		return nil, apperrors.Errorf(apperrors.ErrValidation, "credit card is required")
 	}
 	if in.CustomerID != nil && *in.CustomerID == uuid.Nil {
@@ -172,12 +178,6 @@ func (s *PurchasingService) Create(ctx context.Context, in CreateInput) (*Purcha
 	}
 	if in.SupplierID == nil || *in.SupplierID == uuid.Nil {
 		return nil, apperrors.Errorf(apperrors.ErrValidation, "supplier is required")
-	}
-	if in.PaymentMethod == "" {
-		in.PaymentMethod = DefaultPaymentMethod
-	}
-	if !in.PaymentMethod.Valid() {
-		return nil, apperrors.Errorf(apperrors.ErrValidation, "payment method is invalid")
 	}
 	if !in.ExchangeRate.Decimal().IsPositive() {
 		return nil, apperrors.Errorf(apperrors.ErrValidation, "exchange rate must be positive")
@@ -292,7 +292,7 @@ func (s *PurchasingService) Create(ctx context.Context, in CreateInput) (*Purcha
 		if err := s.orders.Create(ctx, po, items); err != nil {
 			return err
 		}
-		if po.CostUSD.IsPositive() {
+		if po.PaymentMethod == PaymentCard && po.CostUSD.IsPositive() {
 			if err := s.cards.ChargeCard(ctx, *in.CreditCardID, po.CostUSD); err != nil {
 				return err
 			}

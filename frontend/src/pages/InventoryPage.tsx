@@ -202,7 +202,6 @@ function InventorySettingsDrawer({ open, onOpenChange }: { open: boolean; onOpen
       open={open}
       onOpenChange={onOpenChange}
       title="Reglas de inventario"
-      description="Controla cuándo un lote pasa a remate y con cuánta anticipación se avisa."
       footer={
         <Button variant="outline" type="button" onClick={() => onOpenChange(false)} disabled={saving}>
           Cancelar
@@ -326,7 +325,6 @@ export function InventoryPage() {
     <PageContainer>
       <PageHeader
         title="Inventario"
-        subtitle="Lotes, existencias y control de remate"
         actions={
           <>
             <Button variant="outline" onClick={() => setProductsOpen(true)}>

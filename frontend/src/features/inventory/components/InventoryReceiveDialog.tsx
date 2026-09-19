@@ -97,9 +97,9 @@ export function InventoryReceiveDialog({ open, onOpenChange, preset }: Inventory
                 />
                 <div className="form-grid">
                   <DateField name="arrivalDate" label="Fecha de ingreso" required max={today()} />
-                  <NumberField name="quantity" label="Cantidad" required min={1} step={1} description="Unidades ingresadas." />
+                  <NumberField name="quantity" label="Cantidad" required min={1} step={1} />
                 </div>
-                <MoneyField name="unitCost" label="Costo unitario" description="Costo de adquisición por unidad (PEN)." />
+                <MoneyField name="unitCost" label="Costo unitario" />
               </DialogBody>
               <DialogFooter>
                 <Button variant="outline" type="button" onClick={() => onOpenChange(false)} disabled={receive.isPending}>

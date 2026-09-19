@@ -35,6 +35,7 @@ export function DateField<T extends FieldValues>({
         min={min}
         max={max}
         value={value ?? ''}
+        placeholder={!required && !value ? formatDate(new Date()) : undefined}
         onClear={
           !required
             ? () => (setValue as (n: FieldPath<T>, v: string) => void)(name, '')

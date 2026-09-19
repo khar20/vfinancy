@@ -160,7 +160,6 @@ export function CustomersDrawer({ open, onOpenChange }: { open: boolean; onOpenC
         open={open}
         onOpenChange={onOpenChange}
         title="Clientes"
-        description="Cartera de clientes, identificadores fiscales y deuda vigente."
         footer={
           <Button
             onClick={() => {

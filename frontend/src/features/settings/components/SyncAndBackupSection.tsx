@@ -69,7 +69,7 @@ export function CloudSyncSection() {
   if (sync.isLoading) return null;
 
   return (
-    <Section title="Sincronización en la nube" description="Conecta este dispositivo a tu espejo PostgreSQL en el servidor propio.">
+    <Section title="Sincronización en la nube">
       <Card>
         <CardHeader>
           <CardTitle>Conexión al servidor</CardTitle>
@@ -252,7 +252,7 @@ export function BackupSection() {
   });
 
   return (
-    <Section title="Copia de seguridad" description="Respalda tu base de datos local en una carpeta segura.">
+    <Section title="Copia de seguridad">
       <Card>
         <CardHeader>
           <CardTitle>Respaldo manual</CardTitle>
