@@ -199,3 +199,30 @@ The design system implements a **two-font typography architecture** to optimize 
 | **Typography Hierarchy** | Pair Montserrat (Headings/Metrics) with Figtree (Data/Labels) | Avoid mixing mono fonts for standard text or using generic system fonts |
 | **Table Formatting** | Use uppercase bold TH headers, monospace bold IDs, and explicit badges | Do not use sentence case table headers or unstyled text status columns |
 | **Active Nav Items** | Apply full yellow background fill (#F5C518) with a 4px solid #fff left bar | Do not rely solely on subtle text color changes for selected routes |
+
+---
+
+## 7. Layout Hierarchy: One Bounding Surface per Content Zone
+
+Nesting rule: a content zone holds exactly **one** bounding surface (bordered panel, card, or datatable). A container may never render inside another container of equal or greater frame weight.
+
+**Banned anti-patterns**
+
+- Card inside card, section inside section, or `Section` wrapping a `DataTable` (the table already provides the frame).
+- `Section` used as a generic wrapper on list pages merely to "hold" a table.
+
+**Mandatory pattern**
+
+- List blocks: `<Section flat>` (title, no frame) directly above a `<DataTable>`. The table is the single bounding surface; the gap below the title (14px) plus the table's hard top border supply the separators. Use the `flat` prop on `Section` — never restyle via ad-hoc classes.
+- Section separation between stacked blocks relies on **vertical whitespace** (page container gap: 22px; block gap: 14px) and **hairline dividers** (`--border-light`, 1px), never nested boxes.
+- Form-card archetypes may keep bordered `Section`/`Card` where the frame is the container itself (e.g. Settings forms).
+- Toolbar controls (search, select, filters) keep their individual 1.5px borders (DESIGN.md §5.2) but are never themselves framed by an extra box; only the toolbar's bottom hairline and the table's frame bound them.
+
+**Spacing tokens for section separation**
+
+| Separation | Value |
+|------------|-------|
+| Page container gap | 22px |
+| Section-internal gap | 14px |
+| Hairlines (`--border-light`) | 1px |
+| Frames (`--border-color`) | 1.5px |

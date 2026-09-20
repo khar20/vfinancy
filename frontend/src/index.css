@@ -441,6 +441,14 @@ pre {
   gap: 2px;
 }
 
+/* section--flat: section header over a single bounding surface (e.g. DataTable) */
+.section--flat {
+  background-color: transparent;
+  border: none;
+  box-shadow: none;
+  padding: 0;
+}
+
 .section-title {
   font-size: 1.15rem;
   font-weight: 700;

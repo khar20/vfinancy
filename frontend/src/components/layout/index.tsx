@@ -39,6 +39,7 @@ export function Section({
   className,
   children,
   withTick,
+  flat,
 }: {
   title?: string;
   description?: string;
@@ -46,9 +47,10 @@ export function Section({
   className?: string;
   children: React.ReactNode;
   withTick?: boolean;
+  flat?: boolean;
 }) {
   return (
-    <section className={cx('section', className)}>
+    <section className={cx('section', flat && 'section--flat', className)}>
       {(title || actions) && (
         <div className="section__head">
           <div className="section__head-titles">

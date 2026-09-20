@@ -137,7 +137,7 @@ export function ShipmentsPage() {
         }
       />
 
-      <Section title="Envíos">
+      <Section title="Envíos" flat>
         {isLoading ? (
           <div className="page-loader">
             <Spinner />

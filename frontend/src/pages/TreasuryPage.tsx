@@ -218,7 +218,7 @@ export function TreasuryPage() {
         }
       />
 
-      <Section title="Tarjetas de Crédito">
+      <Section title="Tarjetas de Crédito" flat>
         {loading ? (
           <div className="page-loader">
             <Spinner />
@@ -249,7 +249,7 @@ export function TreasuryPage() {
         )}
       </Section>
 
-      <Section title="Ciclos de facturación">
+      <Section title="Ciclos de facturación" flat>
         {projections.length === 0 && !projectionsLoading ? (
           <EmptyState
             title="Sin proyecciones"
