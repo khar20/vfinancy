@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Package, Ban, Plus, Download, Users, Filter, Eye, Pencil } from 'lucide-react';
 import { z } from 'zod';
-import { PageContainer, PageHeader, StatBand } from '@/components/layout';
+import { PageContainer, PageHeader, Section, StatBand } from '@/components/layout';
 import { StatCard } from '@/components/card';
 import { DataTable, type Column } from '@/components/table';
 import { Badge } from '@/components/badge';
@@ -28,6 +28,7 @@ import {
   useUpdatePurchaseNumber,
 } from '@/features/purchasing/hooks/usePurchases';
 import { PurchaseFormDialog } from '@/features/purchasing/components/PurchaseFormDialog';
+import { ExtraCostsEditor } from '@/features/purchasing/components/ExtraCostsEditor';
 import { SuppliersDrawer } from '@/features/suppliers/components/SuppliersDrawer';
 import { MarkReceivedDialog } from '@/features/purchasing/components/MarkReceivedDialog';
 import { wailsClient } from '@/services/bindings';
@@ -530,6 +531,13 @@ export function PurchasesPage() {
                   />
                 ))}
               </div>
+              <Section title="Costos extras" description="Gastos adicionales de la compra: fletes, aranceles, manejo.">
+                <ExtraCostsEditor
+                  purchaseId={detailQuery.data.id}
+                  disabled={detailQuery.data.status === 'cancelled'}
+                  defaultRate={detailQuery.data.exchangeRate}
+                />
+              </Section>
             </div>
           ) : null)}
       </Drawer>

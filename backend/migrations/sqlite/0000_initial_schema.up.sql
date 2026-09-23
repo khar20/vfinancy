@@ -234,6 +234,25 @@ CREATE TABLE purchase_order_items (
 CREATE INDEX idx_purchase_order_items_order ON purchase_order_items (purchase_order_id);
 CREATE INDEX idx_purchase_order_items_product ON purchase_order_items (product_id);
 
+-- Costos extras de una orden de compra (informativos: no afectan cost_usd / real_cost_pen).
+CREATE TABLE purchase_extra_costs (
+    id                TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+    purchase_order_id TEXT    NOT NULL,
+    concept           TEXT    NOT NULL,
+    amount            TEXT    NOT NULL DEFAULT '0.00' CHECK (CAST(amount AS REAL) >= 0),
+    currency_code     VARCHAR(3) NOT NULL DEFAULT 'USD',
+    exchange_rate     TEXT    NOT NULL DEFAULT '1.000000' CHECK (CAST(exchange_rate AS REAL) > 0),
+
+    created_at        TIMESTAMP NOT NULL DEFAULT (CAST(unixepoch('subsec') * 1000 AS INTEGER)),
+    updated_at        TIMESTAMP NOT NULL DEFAULT (CAST(unixepoch('subsec') * 1000 AS INTEGER)),
+
+    CONSTRAINT fk_purchase_extra_costs_order
+        FOREIGN KEY (purchase_order_id) REFERENCES purchase_orders(id) ON UPDATE CASCADE ON DELETE CASCADE,
+    CONSTRAINT ck_purchase_extra_costs_concept_nonblank CHECK (length(trim(concept)) > 0)
+);
+
+CREATE INDEX idx_purchase_extra_costs_order ON purchase_extra_costs (purchase_order_id);
+
 CREATE TABLE inventory_batches (
     id                     TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
     product_id             TEXT       NOT NULL,
@@ -434,6 +453,11 @@ END;
 CREATE TRIGGER trg_purchase_order_items_sync_delete AFTER DELETE ON purchase_order_items BEGIN
     INSERT INTO sync_tombstones (table_name, record_id, updated_at)
     VALUES ('purchase_order_items', OLD.id, OLD.created_at);
+END;
+
+CREATE TRIGGER trg_purchase_extra_costs_sync_delete AFTER DELETE ON purchase_extra_costs BEGIN
+    INSERT INTO sync_tombstones (table_name, record_id, updated_at)
+    VALUES ('purchase_extra_costs', OLD.id, OLD.updated_at);
 END;
 
 CREATE TRIGGER trg_inventory_batches_sync_delete AFTER DELETE ON inventory_batches BEGIN

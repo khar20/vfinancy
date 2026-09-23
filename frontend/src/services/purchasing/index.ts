@@ -1,5 +1,8 @@
 import type {
   CreatePurchaseRequest,
+  ExtraCostConcept,
+  ExtraCostDTO,
+  ExtraCostRequest,
   PurchaseItemRequest,
   PurchaseOrderDTO,
 } from '../wails-types';
@@ -55,6 +58,24 @@ export interface PurchaseCreateInput {
   items: PurchaseLineInput[];
 }
 
+export type ExtraCost = ExtraCostDTO;
+
+export interface ExtraCostInput {
+  concept: string;
+  amount: number;
+  currency: string;
+  exchangeRate?: number;
+}
+
+function toExtraCostRequest(input: ExtraCostInput): ExtraCostRequest {
+  return {
+    concept: input.concept,
+    amount: input.amount,
+    currencyCode: input.currency,
+    exchangeRate: input.exchangeRate ?? 0,
+  };
+}
+
 export const purchasingService = {
   async list(q: PurchaseQuery = {}): Promise<Purchase[]> {
     const items = await fetchAllPages((page, pageSize) =>
@@ -106,5 +127,29 @@ export const purchasingService = {
 
   async updateNumber(id: string, number: string): Promise<Purchase> {
     return toPurchase(await wailsClient.updatePurchaseNumber(id, number));
+  },
+
+  async listExtraCosts(purchaseId: string): Promise<ExtraCost[]> {
+    return wailsClient.listPurchaseExtraCosts(purchaseId);
+  },
+
+  async addExtraCost(purchaseId: string, input: ExtraCostInput): Promise<ExtraCost> {
+    return wailsClient.addPurchaseExtraCost(purchaseId, toExtraCostRequest(input));
+  },
+
+  async updateExtraCost(purchaseId: string, costId: string, input: ExtraCostInput): Promise<ExtraCost> {
+    return wailsClient.updatePurchaseExtraCost(purchaseId, costId, toExtraCostRequest(input));
+  },
+
+  async deleteExtraCost(purchaseId: string, costId: string): Promise<void> {
+    await wailsClient.deletePurchaseExtraCost(purchaseId, costId);
+  },
+
+  async listConcepts(): Promise<ExtraCostConcept[]> {
+    return wailsClient.getExtraCostConcepts();
+  },
+
+  async saveConcept(c: ExtraCostConcept): Promise<void> {
+    await wailsClient.saveExtraCostConcept(c);
   },
 };

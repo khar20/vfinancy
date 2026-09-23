@@ -73,11 +73,12 @@ func (f *fakeStock) VoidPurchaseReceipt(context.Context, []uuid.UUID) error {
 
 type fakeOrders struct {
 	purchasing.PurchaseRepository
-	seq     int
-	created []*purchasing.PurchaseOrder
-	byID    map[uuid.UUID]*purchasing.PurchaseOrder
-	items   map[uuid.UUID][]*purchasing.PurchaseOrderItem
-	updated []*purchasing.PurchaseOrder
+	seq        int
+	created    []*purchasing.PurchaseOrder
+	byID       map[uuid.UUID]*purchasing.PurchaseOrder
+	items      map[uuid.UUID][]*purchasing.PurchaseOrderItem
+	updated    []*purchasing.PurchaseOrder
+	extraCosts map[uuid.UUID][]*purchasing.ExtraCost
 }
 
 func (f *fakeOrders) NextNumber(context.Context) (string, error) {

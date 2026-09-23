@@ -315,6 +315,99 @@ func (r *purchaseRepository) ListLineSummaries(ctx context.Context, ids []uuid.U
 	return out, nil
 }
 
+// CreateExtraCost inserts one extra cost against an order.
+func (r *purchaseRepository) CreateExtraCost(ctx context.Context, ec *purchasing.ExtraCost) error {
+	_, err := persistence.Q(ctx, r.q).ExecContext(ctx,
+		`INSERT INTO purchase_extra_costs (
+			id, purchase_order_id, concept, amount, currency_code, exchange_rate,
+			created_at, updated_at
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+		ec.ID, ec.PurchaseOrderID, strings.TrimSpace(ec.Concept),
+		ec.Amount.String(), ec.CurrencyCode.String(), ec.ExchangeRate.String(),
+		ec.CreatedAt, ec.UpdatedAt,
+	)
+	return persistence.Translate(err)
+}
+
+// UpdateExtraCost persists the mutable fields of an extra cost scoped
+// to its parent order.
+func (r *purchaseRepository) UpdateExtraCost(ctx context.Context, ec *purchasing.ExtraCost) error {
+	res, err := persistence.Q(ctx, r.q).ExecContext(ctx,
+		`UPDATE purchase_extra_costs SET
+			concept = $1, amount = $2, currency_code = $3, exchange_rate = $4,
+			updated_at = $5
+		 WHERE id = $6 AND purchase_order_id = $7`,
+		strings.TrimSpace(ec.Concept), ec.Amount.String(), ec.CurrencyCode.String(),
+		ec.ExchangeRate.String(), time.Now().UTC(), ec.ID, ec.PurchaseOrderID,
+	)
+	if err != nil {
+		return persistence.Translate(err)
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return repositories.ErrNotFound
+	}
+	return nil
+}
+
+// DeleteExtraCost removes one extra cost scoped to its parent order.
+func (r *purchaseRepository) DeleteExtraCost(ctx context.Context, id, purchaseOrderID uuid.UUID) error {
+	res, err := persistence.Q(ctx, r.q).ExecContext(ctx,
+		`DELETE FROM purchase_extra_costs WHERE id = $1 AND purchase_order_id = $2`,
+		id, purchaseOrderID)
+	if err != nil {
+		return persistence.Translate(err)
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return repositories.ErrNotFound
+	}
+	return nil
+}
+
+// ListExtraCosts returns the extra costs of an order, newest first.
+func (r *purchaseRepository) ListExtraCosts(ctx context.Context, purchaseOrderID uuid.UUID) ([]*purchasing.ExtraCost, error) {
+	rows, err := persistence.Q(ctx, r.q).QueryContext(ctx,
+		`SELECT id, purchase_order_id, concept, amount, currency_code, exchange_rate,
+		        created_at, updated_at
+		 FROM purchase_extra_costs
+		 WHERE purchase_order_id = $1
+		 ORDER BY created_at DESC, id DESC`,
+		purchaseOrderID)
+	if err != nil {
+		return nil, persistence.Translate(err)
+	}
+	out := make([]*purchasing.ExtraCost, 0)
+	if err := persistence.ScanRows(rows, func(row *sql.Rows) error {
+		ec := &purchasing.ExtraCost{}
+		var amount, rate, currency string
+		if err := row.Scan(
+			&ec.ID, &ec.PurchaseOrderID, &ec.Concept, &amount, &currency, &rate,
+			&ec.CreatedAt, &ec.UpdatedAt,
+		); err != nil {
+			return persistence.Translate(err)
+		}
+		m, err := persistence.ParseMoney(amount)
+		if err != nil {
+			return err
+		}
+		ec.Amount = m
+		er, err := valueobjects.ExchangeRateFromString(rate)
+		if err != nil {
+			return err
+		}
+		ec.ExchangeRate = er
+		if cc, err := valueobjects.NewCurrencyCode(currency); err == nil {
+			ec.CurrencyCode = cc
+		}
+		out = append(out, ec)
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 type purchaseScan struct {
 	notes, faultyReason, cancelledReason                              sql.NullString
 	expectedDate, receivedDate, arrivalDate, cancelledAt, deletedAt   sql.NullTime

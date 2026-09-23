@@ -183,18 +183,19 @@ func (a *App) initializeServices(ctx context.Context) error {
 	a.purchasingSvc.SetProducts(a.productsSvc, a.productsSvc)
 	a.purchasingSvc.SetTreasury(a.treasurySvc)
 	a.purchasingSvc.SetImportFactor(a.importFactor)
+	a.purchasingSvc.SetRateProvider(a.usdPenRate)
 	a.salesSvc = sales.New(ordersRepo, paymentsRepo, a.customersSvc, a.productsSvc, a.inventorySvc, a.purchasingSvc, txm, a.log)
-	a.salesSvc.SetClientOrderRateProvider(a.clientOrderRate)
+	a.salesSvc.SetClientOrderRateProvider(a.usdPenRate)
 
 	a.shipmentSvc = shipment.New(shipmentpostgres.NewShipmentRepository(db.DB), txm, a.log)
 
 	return nil
 }
 
-// clientOrderRate resolves the USD->PEN rate snapshotted onto
-// client-order cost snapshots and their linked import orders, falling
-// back to 1 when no rate is available.
-func (a *App) clientOrderRate(ctx context.Context) valueobjects.ExchangeRate {
+// usdPenRate resolves the latest USD->PEN rate with a fallback to 1
+// when no rate is available. It seeds client-order cost snapshots and
+// the exchange-rate snapshot of purchase extra costs.
+func (a *App) usdPenRate(ctx context.Context) valueobjects.ExchangeRate {
 	usd, err := valueobjects.NewCurrencyCode("USD")
 	if err != nil {
 		return valueobjects.One()

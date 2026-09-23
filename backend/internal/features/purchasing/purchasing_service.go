@@ -69,6 +69,7 @@ type PurchasingService struct {
 	txm          repositories.TransactionManager
 	log          *logger.Logger
 	importFactor func(context.Context) float64
+	rate         func(context.Context) valueobjects.ExchangeRate
 }
 
 // New returns a PurchasingService ready for use. The inventory
@@ -107,6 +108,13 @@ func (s *PurchasingService) SetSuppliers(suppliers supplierGetter) {
 // default importFactor is used.
 func (s *PurchasingService) SetImportFactor(fn func(context.Context) float64) {
 	s.importFactor = fn
+}
+
+// SetRateProvider injects the resolver of the current USD->PEN rate
+// used to snapshot the exchange rate of an extra cost at assignment
+// and update time.
+func (s *PurchasingService) SetRateProvider(fn func(context.Context) valueobjects.ExchangeRate) {
+	s.rate = fn
 }
 
 // factor returns the active import factor.
@@ -641,4 +649,143 @@ func (s *PurchasingService) UpdateNumber(ctx context.Context, id uuid.UUID, numb
 	}
 	s.log.Info("purchase number updated", "po_id", id, "number", number)
 	return out, nil
+}
+
+// ExtraCostInput is the payload for AddExtraCost and UpdateExtraCost.
+// A zero ExchangeRate is replaced by the current USD->PEN rate (then
+// the order's own rate), so every cost records the rate of the moment
+// it was assigned or updated.
+type ExtraCostInput struct {
+	Concept      string
+	Amount       valueobjects.Money
+	CurrencyCode valueobjects.CurrencyCode
+	ExchangeRate valueobjects.ExchangeRate
+}
+
+// effectiveRate returns the snapshot rate for an extra cost: the
+// requested rate when positive, otherwise the current USD->PEN rate,
+// otherwise the order's rate, otherwise 1.
+func (s *PurchasingService) effectiveRate(ctx context.Context, requested, orderRate valueobjects.ExchangeRate) valueobjects.ExchangeRate {
+	if requested.Decimal().IsPositive() {
+		return requested
+	}
+	if s.rate != nil {
+		if r := s.rate(ctx); r.Decimal().IsPositive() {
+			return r
+		}
+	}
+	if orderRate.Decimal().IsPositive() {
+		return orderRate
+	}
+	return valueobjects.One()
+}
+
+// AddExtraCost attaches an extra cost to an existing, non-cancelled
+// order. The cost is informational: order totals are untouched.
+func (s *PurchasingService) AddExtraCost(ctx context.Context, purchaseID uuid.UUID, in ExtraCostInput) (*ExtraCost, error) {
+	if purchaseID == uuid.Nil {
+		return nil, apperrors.Errorf(apperrors.ErrValidation, "purchase id is required")
+	}
+	var out *ExtraCost
+	err := s.txm.WithinTransaction(ctx, func(ctx context.Context) error {
+		po, err := s.orders.GetByID(ctx, purchaseID)
+		if err != nil {
+			return err
+		}
+		if po.IsCancelled() {
+			return apperrors.Errorf(apperrors.ErrConflict, "no se pueden modificar costos de una compra anulada")
+		}
+		now := time.Now().UTC()
+		ec := &ExtraCost{
+			ID:              uuid.New(),
+			PurchaseOrderID: purchaseID,
+			Concept:         in.Concept,
+			Amount:          in.Amount,
+			CurrencyCode:    in.CurrencyCode,
+			ExchangeRate:    s.effectiveRate(ctx, in.ExchangeRate, po.ExchangeRate),
+			CreatedAt:       now,
+			UpdatedAt:       now,
+		}
+		if err := ec.Validate(); err != nil {
+			return err
+		}
+		if err := s.orders.CreateExtraCost(ctx, ec); err != nil {
+			return err
+		}
+		out = ec
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	s.log.Info("purchase extra cost added", "po_id", purchaseID, "cost_id", out.ID, "concept", out.Concept)
+	return out, nil
+}
+
+// UpdateExtraCost rewrites one extra cost of an existing order and
+// re-snapshots its exchange rate when the input carries none.
+func (s *PurchasingService) UpdateExtraCost(ctx context.Context, purchaseID, costID uuid.UUID, in ExtraCostInput) (*ExtraCost, error) {
+	if purchaseID == uuid.Nil || costID == uuid.Nil {
+		return nil, apperrors.Errorf(apperrors.ErrValidation, "purchase id is required")
+	}
+	var out *ExtraCost
+	err := s.txm.WithinTransaction(ctx, func(ctx context.Context) error {
+		po, err := s.orders.GetByID(ctx, purchaseID)
+		if err != nil {
+			return err
+		}
+		if po.IsCancelled() {
+			return apperrors.Errorf(apperrors.ErrConflict, "no se pueden modificar costos de una compra anulada")
+		}
+		ec := &ExtraCost{
+			ID:              costID,
+			PurchaseOrderID: purchaseID,
+			Concept:         in.Concept,
+			Amount:          in.Amount,
+			CurrencyCode:    in.CurrencyCode,
+			ExchangeRate:    s.effectiveRate(ctx, in.ExchangeRate, po.ExchangeRate),
+			UpdatedAt:       time.Now().UTC(),
+		}
+		if err := ec.Validate(); err != nil {
+			return err
+		}
+		if err := s.orders.UpdateExtraCost(ctx, ec); err != nil {
+			return err
+		}
+		out = ec
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	s.log.Info("purchase extra cost updated", "po_id", purchaseID, "cost_id", costID, "concept", out.Concept)
+	return out, nil
+}
+
+// DeleteExtraCost removes one extra cost from an existing,
+// non-cancelled order.
+func (s *PurchasingService) DeleteExtraCost(ctx context.Context, purchaseID, costID uuid.UUID) error {
+	if purchaseID == uuid.Nil || costID == uuid.Nil {
+		return apperrors.Errorf(apperrors.ErrValidation, "purchase id is required")
+	}
+	err := s.txm.WithinTransaction(ctx, func(ctx context.Context) error {
+		po, err := s.orders.GetByID(ctx, purchaseID)
+		if err != nil {
+			return err
+		}
+		if po.IsCancelled() {
+			return apperrors.Errorf(apperrors.ErrConflict, "no se pueden modificar costos de una compra anulada")
+		}
+		return s.orders.DeleteExtraCost(ctx, costID, purchaseID)
+	})
+	if err != nil {
+		return err
+	}
+	s.log.Info("purchase extra cost deleted", "po_id", purchaseID, "cost_id", costID)
+	return nil
+}
+
+// ListExtraCosts returns the extra costs of a purchase order.
+func (s *PurchasingService) ListExtraCosts(ctx context.Context, purchaseOrderID uuid.UUID) ([]*ExtraCost, error) {
+	return s.orders.ListExtraCosts(ctx, purchaseOrderID)
 }

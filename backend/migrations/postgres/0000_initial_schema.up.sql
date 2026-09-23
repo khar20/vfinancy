@@ -181,6 +181,25 @@ CREATE TABLE purchase_order_items (
 CREATE INDEX idx_purchase_order_items_order ON purchase_order_items (purchase_order_id);
 CREATE INDEX idx_purchase_order_items_product ON purchase_order_items (product_id);
 
+-- Costos extras de una orden de compra (informativos: no afectan cost_usd / real_cost_pen).
+CREATE TABLE purchase_extra_costs (
+    id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    purchase_order_id UUID        NOT NULL,
+    concept           TEXT        NOT NULL,
+    amount            TEXT        NOT NULL DEFAULT '0.00' CHECK (CAST(amount AS numeric) >= 0),
+    currency_code     VARCHAR(3)  NOT NULL DEFAULT 'USD',
+    exchange_rate     TEXT        NOT NULL DEFAULT '1.000000' CHECK (CAST(exchange_rate AS numeric) > 0),
+
+    created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+
+    CONSTRAINT fk_purchase_extra_costs_order
+        FOREIGN KEY (purchase_order_id) REFERENCES purchase_orders(id) ON UPDATE CASCADE ON DELETE CASCADE,
+    CONSTRAINT ck_purchase_extra_costs_concept_nonblank CHECK (length(trim(concept)) > 0)
+);
+
+CREATE INDEX idx_purchase_extra_costs_order ON purchase_extra_costs (purchase_order_id);
+
 CREATE TABLE inventory_batches (
     id                     UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     product_id             UUID       NOT NULL,

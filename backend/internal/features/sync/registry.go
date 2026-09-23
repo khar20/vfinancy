@@ -26,6 +26,7 @@ var syncedTables = []TableMeta{
 	{Name: "suppliers", PKs: []string{"id"}, TimeColumn: "updated_at", Bools: []string{"is_active"}},
 	{Name: "purchase_orders", PKs: []string{"id"}, TimeColumn: "updated_at", Bools: []string{"faulty"}},
 	{Name: "purchase_order_items", PKs: []string{"id"}, TimeColumn: "created_at"},
+	{Name: "purchase_extra_costs", PKs: []string{"id"}, TimeColumn: "updated_at"},
 	{Name: "inventory_batches", PKs: []string{"id"}, TimeColumn: "updated_at", Bools: []string{"is_clearance"}},
 	{Name: "inventory_movements", PKs: []string{"id"}, TimeColumn: "created_at"},
 	{Name: "sales", PKs: []string{"id"}, TimeColumn: "updated_at"},

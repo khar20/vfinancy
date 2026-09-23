@@ -6,6 +6,8 @@ import type {
   CardPaymentRequest,
   CreatePurchaseRequest,
   CreateSaleRequest,
+  ExtraCostConcept,
+  ExtraCostRequest,
   ListSalesRequest,
   PaginationRequest,
   PurchaseFilterRequest,
@@ -297,6 +299,30 @@ export const wailsClient = {
   async updatePurchaseNumber(id: string, number: string) {
     const b = await resolveBindings();
     return b.UpdatePurchaseNumber(id, number);
+  },
+  async listPurchaseExtraCosts(purchaseId: string) {
+    const b = await resolveBindings();
+    return b.ListPurchaseExtraCosts(purchaseId);
+  },
+  async addPurchaseExtraCost(purchaseId: string, req: ExtraCostRequest) {
+    const b = await resolveBindings();
+    return b.AddPurchaseExtraCost(purchaseId, req);
+  },
+  async updatePurchaseExtraCost(purchaseId: string, costId: string, req: ExtraCostRequest) {
+    const b = await resolveBindings();
+    return b.UpdatePurchaseExtraCost(purchaseId, costId, req);
+  },
+  async deletePurchaseExtraCost(purchaseId: string, costId: string) {
+    const b = await resolveBindings();
+    return b.DeletePurchaseExtraCost(purchaseId, costId);
+  },
+  async getExtraCostConcepts() {
+    const b = await resolveBindings();
+    return b.GetExtraCostConcepts();
+  },
+  async saveExtraCostConcept(concept: ExtraCostConcept) {
+    const b = await resolveBindings();
+    return b.SaveExtraCostConcept(concept);
   },
 
   async listCreditCards() {

@@ -358,6 +358,28 @@ export interface CancelPurchaseRequest {
   reason: string;
 }
 
+export interface ExtraCostDTO {
+  id: string;
+  purchaseOrderId: string;
+  concept: string;
+  amount: number;
+  currencyCode: string;
+  exchangeRate: number;
+}
+
+export interface ExtraCostRequest {
+  concept: string;
+  amount: number;
+  currencyCode: string;
+  exchangeRate: number;
+}
+
+export interface ExtraCostConcept {
+  concept: string;
+  amount: number;
+  currency: string;
+}
+
 export interface CreditCardDTO {
   id: string;
   issuer: string;
@@ -494,6 +516,12 @@ export interface AppBindings {
   CancelPurchase(req: CancelPurchaseRequest): Promise<PurchaseOrderDTO>;
   MarkPurchaseFaulty(req: CancelPurchaseRequest): Promise<PurchaseOrderDTO>;
   UpdatePurchaseNumber(id: string, number: string): Promise<PurchaseOrderDTO>;
+  ListPurchaseExtraCosts(purchaseId: string): Promise<ExtraCostDTO[]>;
+  AddPurchaseExtraCost(purchaseId: string, req: ExtraCostRequest): Promise<ExtraCostDTO>;
+  UpdatePurchaseExtraCost(purchaseId: string, costId: string, req: ExtraCostRequest): Promise<ExtraCostDTO>;
+  DeletePurchaseExtraCost(purchaseId: string, costId: string): Promise<void>;
+  GetExtraCostConcepts(): Promise<ExtraCostConcept[]>;
+  SaveExtraCostConcept(concept: ExtraCostConcept): Promise<void>;
 
   ListCreditCards(): Promise<CreditCardDTO[]>;
   IssueCreditCard(req: SaveCreditCardRequest): Promise<CreditCardDTO>;

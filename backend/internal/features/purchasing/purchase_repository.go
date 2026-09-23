@@ -70,4 +70,13 @@ type PurchaseRepository interface {
 	// keyed by order id and ordered by line number, for the list's
 	// products column.
 	ListLineSummaries(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID][]PurchaseLineSummary, error)
+	// ListExtraCosts returns the extra costs of an order, newest first.
+	ListExtraCosts(ctx context.Context, purchaseOrderID uuid.UUID) ([]*ExtraCost, error)
+	// CreateExtraCost inserts one extra cost against an order.
+	CreateExtraCost(ctx context.Context, ec *ExtraCost) error
+	// UpdateExtraCost persists the mutable fields of an extra cost
+	// scoped to its parent order.
+	UpdateExtraCost(ctx context.Context, ec *ExtraCost) error
+	// DeleteExtraCost removes one extra cost scoped to its parent order.
+	DeleteExtraCost(ctx context.Context, id, purchaseOrderID uuid.UUID) error
 }
