@@ -107,9 +107,13 @@ func (s *InventoryService) ListKardex(productID int64, q ListQuery) (Page, error
 	if e != nil {
 		return Page{}, e
 	}
-	columns := map[string]string{"date": "date", "movement": "direction", "qty": "qty"}
-	where := []string{"product_id=?"}
-	args := []any{productID}
+	display := q.DisplayCurrency
+	if display != "PEN" && display != "USD" {
+		display = "PEN"
+	}
+	where := []string{"1=1"}
+	args := []any{}
+	columns := map[string]string{"date": "date", "movement": "direction", "qty": "signed_qty"}
 	for _, f := range q.Filters {
 		col, ok := columns[f.Field]
 		if !ok {
@@ -126,7 +130,28 @@ func (s *InventoryService) ListKardex(productID int64, q ListQuery) (Page, error
 		where = append(where, "substr(date,1,7)<?")
 		args = append(args, q.CursorMonth)
 	}
-	rows, err := rowsDB(db, `SELECT *,substr(date,1,7) AS _month FROM kardex WHERE `+strings.Join(where, " AND ")+` ORDER BY date DESC,ref_id DESC`, args...)
+	unit := sqlConvert("l.unit_cost_cents", "l.currency", "l.tc", display)
+	query := `WITH movements AS (
+		SELECT l.entry_date AS date,'in' AS direction,l.qty_initial AS qty,l.qty_initial AS signed_qty,l.code AS lotCode,
+			COALESCE(p.code,'') AS refCode,` + unit + ` AS unitCents,l.currency,l.tc,l.id AS move_id,
+			CASE WHEN l.source='manual' THEN 'Ingreso manual' WHEN p.code IS NOT NULL THEN 'Compra '||p.code ELSE 'Ingreso' END AS movLabel
+		FROM lots l LEFT JOIN purchase_items pi ON pi.id=l.purchase_item_id LEFT JOIN purchases p ON p.id=pi.purchase_id
+		WHERE l.product_id=? AND l.voided_at IS NULL
+		UNION ALL
+		SELECT s.date,'out',si.qty,-si.qty,l.code,s.code,` + sqlConvert("l.unit_cost_cents", "l.currency", "l.tc", display) + `,l.currency,l.tc,si.id,
+			CASE WHEN s.kind='shipment' THEN 'Envío' ELSE 'Venta' END
+		FROM sale_items si JOIN sales s ON s.id=si.sale_id JOIN lots l ON l.id=si.lot_id
+		WHERE si.product_id=? AND s.voided_at IS NULL AND l.voided_at IS NULL
+	), balanced AS (
+		SELECT *,direction||'-'||move_id AS id,
+			SUM(signed_qty) OVER (ORDER BY date,CASE direction WHEN 'in' THEN 0 ELSE 1 END,move_id ROWS UNBOUNDED PRECEDING) AS balanceQty,
+			SUM(signed_qty*unitCents) OVER (ORDER BY date,CASE direction WHEN 'in' THEN 0 ELSE 1 END,move_id ROWS UNBOUNDED PRECEDING) AS balanceValueCents
+		FROM movements
+	)
+	SELECT *,substr(date,1,7) AS _month FROM balanced WHERE ` + strings.Join(where, " AND ") + `
+	ORDER BY date DESC,CASE direction WHEN 'out' THEN 1 ELSE 0 END DESC,move_id DESC`
+	args = append([]any{productID, productID}, args...)
+	rows, err := rowsDB(db, query, args...)
 	if err != nil {
 		return Page{}, err
 	}
@@ -233,6 +258,23 @@ func (s *InventoryService) DismissAuction(id int64) error {
 		return e
 	}
 	r, e := db.Exec(`UPDATE lots SET countdown_days=0,updated_at=? WHERE id=? AND voided_at IS NULL`, now(), id)
+	if e != nil {
+		return e
+	}
+	if n, _ := r.RowsAffected(); n == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+func (s *InventoryService) SetLotCountdown(id int64, days *int64) error {
+	if days != nil && *days < 0 {
+		return fmt.Errorf("days must be zero or greater")
+	}
+	db, e := s.core.check()
+	if e != nil {
+		return e
+	}
+	r, e := db.Exec(`UPDATE lots SET countdown_days=?,updated_at=? WHERE id=? AND voided_at IS NULL`, days, now(), id)
 	if e != nil {
 		return e
 	}

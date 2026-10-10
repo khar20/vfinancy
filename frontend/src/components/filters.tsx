@@ -85,7 +85,9 @@ export function useServerFilters(entity: string) {
 const operatorLabels: Record<string, string> = { contains: 'contiene', equals: 'es igual', '=': '=', '>': '>', '<': '<', between: 'entre', inMonth: 'en el mes', before: 'antes', after: 'después', is: 'es', isAny: 'es alguno de' }
 
 export function FilterBar({ state }: { state: ReturnType<typeof useServerFilters> }) {
-  return <section className="filtercontrol"><div className="filterbar" role="group" aria-label="Filtros de la página">
+  const [open, setOpen] = useState(false)
+  const activeCount = state.drafts.filter((draft) => Array.isArray(draft.value) ? draft.value.length > 0 : draft.value.trim() !== '' || draft.end !== '').length
+  return <section className="filtercontrol"><button type="button" className="btn filtercontrol__toggle" aria-expanded={open} onClick={() => setOpen((value) => !value)}>{open ? 'Ocultar filtros' : 'Filtros'}{activeCount > 0 && <span className="filtercontrol__count">{activeCount}</span>}</button>{open && <div className="filterbar" role="group" aria-label="Filtros de la página">
     {state.drafts.map((draft) => {
       const field = state.schema.find((item) => item.field === draft.field)
       const options = draft.field === 'status' ? statesByEntity[state.entity] ?? optionSets.status : optionSets[draft.field] ?? []
@@ -99,5 +101,5 @@ export function FilterBar({ state }: { state: ReturnType<typeof useServerFilters
       </div>
     })}
     <div className="filterbar__actions"><button className="btn btn--xs" type="button" onClick={state.add}><Plus size={12} /> Filtro</button><button className="btn btn--xs" type="button" onClick={state.clear}>Limpiar</button></div>
-  </div></section>
+  </div>}</section>
 }

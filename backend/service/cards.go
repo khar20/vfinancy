@@ -465,7 +465,7 @@ func (s *CardService) ListCycles(q ListQuery) (Page, error) {
 	if limit > 120 {
 		limit = 120
 	}
-	page := Page{}
+	page := Page{Months: []MonthGroup{}}
 	for i, month := range months {
 		if i >= limit {
 			break

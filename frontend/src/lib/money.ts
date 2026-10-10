@@ -20,6 +20,14 @@ export function formatMoney(cents: number, currency: Currency): string {
   return `${currency === 'USD' ? '$' : 'S/'} ${centsText(cents)}`
 }
 
+export function convertCents(cents: number, from: Currency, to: Currency, tc: number): number {
+  if (from === to) return Math.trunc(cents)
+  const numerator = from === 'USD' ? tc : 10000
+  const denominator = from === 'USD' ? 10000 : tc
+  const value = Math.trunc(cents) * numerator
+  return Math.trunc((value + Math.sign(value) * denominator / 2) / denominator)
+}
+
 export function formatTc(scaled: number): string {
   const n = Math.trunc(scaled)
   return `${Math.floor(n / 10000)}.${String(n % 10000).padStart(4, '0')}`

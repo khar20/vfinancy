@@ -67,7 +67,10 @@ export function DocumentFormModal({ kind, catalog, onClose, existing, extrasOnly
     const ids = [...new Set(items.map((line) => line.productId).filter(Boolean))]
     for (const productId of ids) {
       if (lotOptions[productId]) continue
-      void api.Inventory.LotsForProduct(Number(productId)).then((rows) => setLotOptions((old) => ({ ...old, [productId]: rows as Array<Record<string, any>> }))).catch(() => {})
+      void api.Inventory.LotsForProduct(Number(productId)).then((rows) => {
+        const currentSaleItems = existing && !editingPurchase ? (existing as service.Sale).items ?? [] : []
+        setLotOptions((old) => ({ ...old, [productId]: (rows as Array<Record<string, any>>).map((lot) => ({ ...lot, available: Number(lot.available) + currentSaleItems.filter((item) => Number(item.lotId) === Number(lot.id)).reduce((sum, item) => sum + Number(item.qty), 0) })) }))
+      }).catch(() => {})
     }
   }, [items.map((item) => item.productId).join(','), kind])
 
@@ -112,23 +115,29 @@ export function DocumentFormModal({ kind, catalog, onClose, existing, extrasOnly
         await api.Purchases.Save(new service.Purchase({ id: Number(existing?.id ?? 0), code, supplierId: Number(supplierId), date, paymentMethod: method, cardId: method === 'card' ? Number(cardId) : undefined, currency, tc: rate, forClientId: forClient && clientId ? Number(clientId) : undefined, items: purchaseItems, extras: extraItems }))
       } else {
         const saleItems: service.SaleItem[] = []
-        for (const line of items.filter((item) => item.productId)) {
-          const qty = Number(line.qty)
-          if (line.lotId) {
-            const choices = (lotOptions[line.productId] ?? []).filter((lot) => Number(lot.available) > 0 && (lot.reserved_client_id == null || Number(lot.reserved_client_id) === Number(clientId)))
-            const selectedIndex = choices.findIndex((lot) => Number(lot.id) === Number(line.lotId))
-            if (selectedIndex < 0) throw new Error(`Lote ${line.lotId} no tiene stock disponible para este cliente`)
-            let remaining = qty
-            for (const lot of choices.slice(selectedIndex)) {
-              if (remaining <= 0) break
-              const take = Math.min(remaining, Number(lot.available))
-              saleItems.push(new service.SaleItem({ productId: Number(line.productId), lotId: Number(lot.id), qty: take, description: line.description, unitPriceCents: textToCents(line.amount) ?? 0 }))
-              remaining -= take
+        if (extrasOnly && existing) {
+          saleItems.push(...(existing as service.Sale).items.map((item) => new service.SaleItem(item)))
+        } else {
+          for (const line of items.filter((item) => item.productId)) {
+            const qty = Number(line.qty)
+            if (existing && line.lotId) {
+              saleItems.push(new service.SaleItem({ productId: Number(line.productId), lotId: Number(line.lotId), qty, description: line.description, unitPriceCents: textToCents(line.amount) ?? 0 }))
+            } else if (line.lotId) {
+              const choices = (lotOptions[line.productId] ?? []).filter((lot) => Number(lot.available) > 0 && (lot.reserved_client_id == null || Number(lot.reserved_client_id) === Number(clientId)))
+              const selectedIndex = choices.findIndex((lot) => Number(lot.id) === Number(line.lotId))
+              if (selectedIndex < 0) throw new Error(`Lote ${line.lotId} no tiene stock disponible para este cliente`)
+              let remaining = qty
+              for (const lot of choices.slice(selectedIndex)) {
+                if (remaining <= 0) break
+                const take = Math.min(remaining, Number(lot.available))
+                saleItems.push(new service.SaleItem({ productId: Number(line.productId), lotId: Number(lot.id), qty: take, description: line.description, unitPriceCents: textToCents(line.amount) ?? 0 }))
+                remaining -= take
+              }
+              if (remaining > 0) throw new Error(`Stock insuficiente: faltan ${remaining} unidades`)
+            } else {
+              const suggested = await api.Inventory.SuggestLots(Number(line.productId), qty)
+              for (const lot of suggested) saleItems.push(new service.SaleItem({ productId: Number(line.productId), lotId: lot.lotId, qty: lot.suggestedQty, description: line.description, unitPriceCents: textToCents(line.amount) ?? 0 }))
             }
-            if (remaining > 0) throw new Error(`Stock insuficiente: faltan ${remaining} unidades`)
-          } else {
-            const suggested = await api.Inventory.SuggestLots(Number(line.productId), qty)
-            for (const lot of suggested) saleItems.push(new service.SaleItem({ productId: Number(line.productId), lotId: lot.lotId, qty: lot.suggestedQty, description: line.description, unitPriceCents: textToCents(line.amount) ?? 0 }))
           }
         }
         await api.Sales.Save(new service.Sale({ id: Number(existing?.id ?? 0), code, kind, clientId: clientId ? Number(clientId) : undefined, date, currency, tc: rate, items: saleItems, extras: extraItems, paidNowCents: existing ? 0 : textToCents(paidNow) ?? 0, paymentMethod: method, shipRegion: region || record?.shipRegion, shipAddress: address || record?.shipAddress, securityCode }))

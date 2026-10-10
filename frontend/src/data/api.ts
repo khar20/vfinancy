@@ -26,11 +26,11 @@ export function query(displayCurrency: Currency, filters: Filter[] = [], cursorM
   return { filters, displayCurrency, cursorMonth, monthsLimit } as Query
 }
 
-export async function allPages(fetchPage: (q: Query) => Promise<Page>, currency: Currency): Promise<Record<string, any>[]> {
+export async function allPages(fetchPage: (q: Query) => Promise<Page>, currency: Currency, filters: Filter[] = []): Promise<Record<string, any>[]> {
   const rows: Record<string, any>[] = []
   let cursor = ''
   for (let i = 0; i < 20; i++) {
-    const page = await fetchPage(query(currency, [], cursor, 120))
+    const page = await fetchPage(query(currency, filters, cursor, 120))
     for (const group of page.months ?? []) rows.push(...(group.rows as Record<string, any>[]))
     if (!page.nextCursor || page.nextCursor === cursor) break
     cursor = page.nextCursor

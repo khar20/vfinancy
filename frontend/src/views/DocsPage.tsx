@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
+import type { ReactNode } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { ChevronDown, CircleCheck, Plus, Printer, Send, Trash2, Undo2, Wallet, Pencil } from 'lucide-react'
+import { ChevronDown, CircleCheck, Plus, Printer, Send, Undo2, Wallet, XCircle } from 'lucide-react'
 import { service } from '../../wailsjs/go/models'
 import { api, allPages, query } from '../data/api'
 import type { Currency, Page } from '../data/api'
@@ -10,6 +11,7 @@ import { parseError } from '../lib/errors'
 import { cx, fmtDate, fmtDateShort, todayISO } from '../lib/format'
 import { formatMoney, tcFromText, tcText, textToCents } from '../lib/money'
 import { Badge, Field, Loading, Modal, Money, MoneyInput, Seg, TcField, TextInput, ViewHead } from '../components/ui'
+import { RowMenu } from '../components/menu'
 import { DocumentFormModal } from './DocumentFormModal'
 import { FilterBar, useServerFilters } from '../components/filters'
 import { MonthJournal } from '../components/journal'
@@ -18,6 +20,7 @@ import { printShipment } from '../components/print'
 
 type Row = Record<string, any>
 type Catalog = { clients: Row[]; suppliers: Row[]; products: Row[]; cards: Row[] }
+const isPurchaseKind = (kind: string): boolean => kind === 'purchase'
 
 export function DocsPage({ kind }: { kind: 'purchase' | 'sale' | 'shipment' }) {
   const currency = useStore((state) => state.currency)
@@ -101,7 +104,7 @@ export function DocsPage({ kind }: { kind: 'purchase' | 'sale' | 'shipment' }) {
       const id = Number(row.id)
       const state = statusView(kind === 'purchase' ? 'purchases' : 'sales', row.status)
       const opened = openIds.has(id)
-      return <article className={cx('rec', state && `tint--${state.tone}`, row.status === 'voided' && 'rec--void', opened && 'rec--open')}><button className="rec__main" type="button" aria-expanded={opened} onClick={() => setOpenIds((old) => { const next = new Set(old); opened ? next.delete(id) : next.add(id); return next })}><span className="rec__id"><b className="rec__code">{row.code}</b><span className="rec__meta">{title.slice(0, -1)} · {fmtDateShort(row.date)}</span></span><span className="rec__title">{counterparty(row)}</span><span className="rec__amount"><Money cents={row.totalCents ?? 0} currency={currency} original={row.originalTotalCents} documentCurrency={(row.currency ?? 'PEN') as Currency} tc={row.tc} />{Number(row.balanceCents) > 0 && <small className="rec__balance">Saldo {formatMoney(row.balanceCents, currency)}</small>}</span><span className="rec__state"><Badge state={state} /></span><ChevronDown size={14} /></button>{opened && <DocumentDetail kind={kind} row={row} counterparty={counterparty(row)} catalog={catalog} onEdit={(record, extrasOnly = false) => setEditing({ record, extrasOnly })} afterChange={() => { useStore.getState().refresh(); toast(`${row.code} actualizado`) }} />}</article>
+      return <article className={cx('rec', state && `stripe stripe--${state.tone}`, row.status === 'voided' && 'rec--void', opened && 'rec--open')}><button className="rec__main" type="button" aria-expanded={opened} onClick={() => setOpenIds((old) => { const next = new Set(old); opened ? next.delete(id) : next.add(id); return next })}><span className="rec__id"><b className={cx('rec__code', row.status === 'voided' && 'rec__code--void')}>{row.code}</b><span className="rec__meta">{title.slice(0, -1)} · {fmtDateShort(row.date)}</span></span><span className="rec__title">{counterparty(row)}</span><span className="rec__amount"><Money cents={row.totalCents ?? 0} currency={currency} original={row.originalTotalCents} documentCurrency={(row.currency ?? 'PEN') as Currency} tc={row.tc} />{Number(row.balanceCents) > 0 && <small className="rec__balance">Saldo {formatMoney(row.balanceCents, currency)}</small>}</span><span className="rec__state"><Badge state={state} /></span><ChevronDown size={14} /></button>{opened && <DocumentDetail kind={kind} row={row} counterparty={counterparty(row)} catalog={catalog} onEdit={(record, extrasOnly = false) => setEditing({ record, extrasOnly })} afterChange={() => { useStore.getState().refresh(); toast(`${row.code} actualizado`) }} />}</article>
     }} />}
     {creating && <DocumentFormModal kind={kind} catalog={catalog} onClose={() => setCreating(false)} />}
     {editing && <DocumentFormModal kind={kind} catalog={catalog} existing={editing.record} extrasOnly={editing.extrasOnly} onClose={() => setEditing(null)} />}
@@ -117,15 +120,20 @@ function DocumentDetail({ kind, row, counterparty, catalog, onEdit, afterChange 
   const [costing, setCosting] = useState<Row | null>(null)
   const [lots, setLots] = useState<Record<number, Row>>({})
   const [advances, setAdvances] = useState<Row[]>([])
-  const [payments, setPayments] = useState<Row[]>([])
+  const [purchaseTotals, setPurchaseTotals] = useState<service.DocumentTotals | null>(null)
   const [busy, setBusy] = useState(false)
   useEffect(() => {
     let active = true
+    setDocument(null)
+    setPurchaseTotals(null)
+    setSummary(null)
+    setCosting(null)
     const request = kind === 'purchase' ? api.Purchases.Get(Number(row.id)) : api.Sales.Get(Number(row.id))
     request.then(async (value) => {
       if (!active) return
       const record = value as Row
       setDocument(record)
+      if (kind === 'purchase') void api.Purchases.PreviewTotal(record as service.Purchase, currency).then((totals) => { if (active) setPurchaseTotals(totals) }).catch(() => { if (active) setPurchaseTotals(null) })
       const products = [...new Set((record.items ?? []).map((item: Row) => Number(item.productId)))]
       const lotLists = await Promise.all(products.map((productId) => api.Inventory.LotsForProduct(Number(productId)).catch(() => [])))
       if (active) setLots(Object.fromEntries(lotLists.flatMap((entries) => entries as Row[]).map((lot) => [Number(lot.id), lot])))
@@ -142,17 +150,8 @@ function DocumentDetail({ kind, row, counterparty, catalog, onEdit, afterChange 
       }
     }).catch((error) => toast(parseError(error).message ?? 'No se pudo cargar el detalle', 'bad'))
     if (kind !== 'purchase') {
-      api.Sales.Summary(Number(row.id), currency).then((value) => { if (active) setSummary(value as Row) })
-      api.Sales.Costing(Number(row.id), currency).then((value) => { if (active) setCosting(value as Row) })
-      const loadPayments = async () => {
-        const found: Row[] = []
-        for (const paymentKind of ['payment', 'advance']) {
-          const page = await api.Payments.List(query(currency, [new service.Filter({ field: 'kind', op: 'is', value: paymentKind })], '', 120))
-          for (const month of page.months ?? []) found.push(...month.rows as Row[])
-        }
-        if (active) setPayments(found.filter((payment) => Number(payment.sale_id) === Number(row.id)))
-      }
-      void loadPayments().catch(() => {})
+      api.Sales.Summary(Number(row.id), currency).then((value) => { if (active) setSummary(value as Row) }).catch(() => { if (active) setSummary(null) })
+      api.Sales.Costing(Number(row.id), currency).then((value) => { if (active) setCosting(value as Row) }).catch(() => { if (active) setCosting(null) })
     }
     return () => { active = false }
   }, [row.id, kind, currency, revision])
@@ -164,15 +163,203 @@ function DocumentDetail({ kind, row, counterparty, catalog, onEdit, afterChange 
     finally { setBusy(false) }
   }
   if (!document) return <div className="rec__body"><Loading /></div>
-  const totalSales = summary?.totalCents ?? row.totalCents ?? 0
+  if (isPurchaseKind(kind)) return <PurchaseDetail document={document as service.Purchase} row={row} counterparty={counterparty} catalog={catalog} lots={lots} advances={advances} totals={purchaseTotals} busy={busy} act={act} onEdit={onEdit} />
+  if (kind === 'sale') return <SaleDetail document={document as service.Sale} row={row} catalog={catalog} lots={lots} summary={summary} costing={costing} busy={busy} act={act} onEdit={onEdit} />
+  return <ShipmentDetail document={document as service.Sale} row={row} catalog={catalog} lots={lots} summary={summary} costing={costing} busy={busy} act={act} onEdit={onEdit} />
+}
+
+type SaleDetailProps = {
+  document: service.Sale
+  row: Row
+  catalog: Catalog
+  lots: Record<number, Row>
+  summary: Row | null
+  costing: Row | null
+  busy: boolean
+  act: (action: () => Promise<unknown>, label: string) => Promise<void>
+  onEdit: (record: service.Purchase | service.Sale, extrasOnly?: boolean) => void
+}
+
+function SaleDetail({ document, row, catalog, lots, summary, costing, busy, act, onEdit }: SaleDetailProps) {
+  const currency = useStore((state) => state.currency)
+  const payments = document.payments ?? []
+  const advance = payments.find((payment) => payment.kind === 'advance')
+  const charges = payments.filter((payment) => payment.kind === 'payment')
+  const client = document.clientId == null ? null : catalog.clients.find((entry) => Number(entry.id) === Number(document.clientId))
+  const balance = Number(summary?.balanceCents ?? 0)
+  const total = Number(summary?.totalCents ?? row.totalCents ?? 0)
+
   return <div className="rec__body"><div className="rec__bodyin">
-    <div className="meta-grid"><div className="meta-grid__cell"><span className="meta-grid__k">{kind === 'purchase' ? 'Proveedor' : 'Cliente'}</span><span className="meta-grid__v">{kind === 'purchase' ? <EntityLink kind="supplier" id={document.supplierId}>{counterparty}</EntityLink> : document.clientId ? <EntityLink kind="client" id={document.clientId}>{catalog.clients.find((client) => Number(client.id) === Number(document.clientId))?.name ?? counterparty}</EntityLink> : 'Cliente general'}</span></div><div className="meta-grid__cell"><span className="meta-grid__k">Fecha</span><span className="meta-grid__v">{fmtDate(document.date)}</span></div><div className="meta-grid__cell"><span className="meta-grid__k">Moneda · TC</span><span className="meta-grid__v">{document.currency} · {tcText(document.tc)}</span></div>{kind === 'purchase' && <div className="meta-grid__cell"><span className="meta-grid__k">Método de pago</span><span className="meta-grid__v">{document.paymentMethod}{document.cardId ? ` · ${catalog.cards.find((card) => Number(card.id) === Number(document.cardId))?.name ?? ''}` : ''}</span></div>}{kind === 'shipment' && <div className="meta-grid__cell"><span className="meta-grid__k">Dirección</span><span className="meta-grid__v">{document.shipAddress} · {document.shipRegion} · seguridad {document.securityCode}</span></div>}</div>
-    <div className="table-scroll"><table className="tbl"><thead><tr><th>Producto</th><th>Detalle · lote</th><th className="num">Cant.</th><th className="num">Unitario</th></tr></thead><tbody>{(document.items ?? []).map((item: Row, index: number) => { const product = catalog.products.find((value) => Number(value.id) === Number(item.productId)); const lot = lots[Number(item.lotId)]; return <tr key={item.id ?? index}><td><EntityLink kind="product" id={item.productId}>{product?.name ?? `Producto ${item.productId}`}</EntityLink></td><td>{item.description || '—'} {lot && <EntityLink kind="lot" id={item.lotId} chip>{lot.code}</EntityLink>}</td><td className="num">{item.qty}</td><td className="num"><Money cents={kind === 'purchase' ? item.unitCostCents : item.unitPriceCents} currency={document.currency} /></td></tr>})}</tbody></table></div>
-    {(document.extras ?? []).map((extra: Row) => <div className="sumrow" key={extra.id}>{extra.concept}<Money cents={extra.amountCents} currency={extra.currency} /></div>)}
-    <div className="sum-grid"><div className="sumrow sumrow--strong"><span>Total</span><Money cents={kind === 'purchase' ? row.totalCents : totalSales} currency={currency} original={kind === 'purchase' ? row.originalTotalCents : summary?.originalTotalCents} documentCurrency={kind === 'purchase' ? document.currency : summary?.documentCurrency} tc={document.tc} /></div>{kind !== 'purchase' && <><div className="sumrow"><span>Pagado</span><Money cents={summary?.paidCents ?? 0} /></div><div className="sumrow"><span>Saldo</span><Money cents={summary?.balanceCents ?? 0} /></div><div className="sumrow"><span>Costo base de lotes</span><Money cents={costing?.costBaseCents ?? 0} /></div><div className="sumrow"><span>Costos extras proporcionales</span><Money cents={costing?.costExtraCents ?? 0} /></div><div className="sumrow sumrow--strong"><span>Utilidad</span><Money cents={costing?.profitCents ?? 0} /></div></>}</div>
-    {kind === 'purchase' && advances.length > 0 && <section className="detail-payments"><h3>Adelantos</h3>{advances.map((advance) => <div className="listrow" key={advance.id}><span className="listrow__main"><b>{advance.code}</b><span className="listrow__meta">{fmtDateShort(advance.date)} · {advance.method}</span></span><Money cents={advance.amount_cents} currency={currency} original={advance.original_amount_cents} documentCurrency={advance.currency} tc={advance.tc} /><Badge state={statusView('payments', advance.status)} />{advance.status === 'active' && <button className="btn btn--xs" type="button" onClick={() => void act(() => api.Payments.RefundAdvance(Number(advance.id)), 'Adelanto devuelto')}>Devolver</button>}</div>)}</section>}
-    {kind !== 'purchase' && payments.length > 0 && <section className="detail-payments"><h3>Cobros y adelantos</h3>{payments.map((payment) => <div className="listrow" key={payment.id}><span className="listrow__main"><b>{payment.code}</b><span className="listrow__meta">{fmtDateShort(payment.date)} · {payment.method}</span></span><Money cents={payment.amount_cents} currency={currency} original={payment.original_amount_cents} documentCurrency={payment.currency} tc={payment.tc} />{payment.kind === 'advance' && <Badge state={statusView('payments', payment.status)} />}</div>)}</section>}
-    <div className="rec__foot hstack hstack--wrap">{kind === 'purchase' && row.status === 'pending' && <button className="btn btn--primary btn--xs" type="button" disabled={busy} onClick={() => void act(() => api.Purchases.ReceivePurchase(Number(row.id)), 'Compra recibida')}><CircleCheck size={13} /> Marcar recibida</button>}{kind === 'purchase' && row.status === 'reserved' && document.forClientId && <SellReservedAction purchase={document as service.Purchase} catalog={catalog} />}{kind === 'purchase' && document.forClientId && <AdvanceAction purchase={document as service.Purchase} />}{kind === 'purchase' && document.forClientId && row.status !== 'voided' && <button type="button" className="btn btn--xs" disabled={busy} onClick={() => window.confirm('¿Cancelar el encargo? Los adelantos activos pasarán a Devuelto y se liberarán los lotes.') && void act(() => api.Purchases.CancelOrder(Number(row.id)), 'Encargo cancelado')}>Cancelar encargo</button>}{kind === 'shipment' && row.status !== 'delivered' && row.status !== 'voided' && <button className="btn btn--primary btn--xs" type="button" disabled={busy} onClick={() => void act(() => api.Sales.AdvanceShipment(Number(row.id)), 'Estado del envío actualizado')}><Send size={13} /> Avanzar estado</button>}{kind === 'shipment' && <button className="btn btn--xs" type="button" onClick={() => printShipment(document as service.Sale, catalog.products, catalog.clients.find((client) => Number(client.id) === Number(document.clientId))?.name ?? 'Cliente general', Number(summary?.originalTotalCents ?? 0))}><Printer size={13} /> Comprobante</button>}{row.status !== 'voided' && (kind !== 'purchase' || row.status === 'pending') && <button type="button" className="btn btn--xs" disabled={busy} onClick={() => onEdit(document as service.Purchase | service.Sale, kind === 'purchase' && row.status !== 'pending')}><Pencil size={13} /> Editar</button>}{kind !== 'purchase' && Number(summary?.balanceCents ?? 0) > 0 && <PaymentAction sale={document as service.Sale} />}<button type="button" className="btn btn--xs" disabled={busy || row.status === 'voided'} onClick={() => onEdit(document as service.Purchase | service.Sale, true)}>Editar extras</button>{row.status === 'voided' ? <button className="btn btn--xs" type="button" onClick={() => void act(() => kind === 'purchase' ? api.Purchases.Restore(Number(row.id)) : api.Sales.Restore(Number(row.id)), 'Registro restaurado')}><Undo2 size={13} /> Restaurar</button> : <button className="btn btn--xs" type="button" disabled={busy} onClick={() => void act(() => kind === 'purchase' ? api.Purchases.Void(Number(row.id)) : api.Sales.Void(Number(row.id)), 'Registro anulado')}><Trash2 size={13} /> Anular</button>}</div>
+    <div className="meta-grid">
+      <div className="meta-grid__cell"><span className="meta-grid__k">Cliente</span><span className="meta-grid__v">{client ? <EntityLink kind="client" id={client.id}>{client.name}</EntityLink> : 'Cliente general'}</span></div>
+      <div className="meta-grid__cell"><span className="meta-grid__k">Moneda del documento</span><span className="meta-grid__v">{document.currency}</span></div>
+      <div className="meta-grid__cell"><span className="meta-grid__k">Fecha</span><span className="meta-grid__v">{fmtDate(document.date)}</span></div>
+      {advance && <div className="meta-grid__cell"><span className="meta-grid__k">Adelanto</span><span className="meta-grid__v"><Money cents={advance.amountCents} currency={advance.currency as Currency} /> · Aplicado</span></div>}
+    </div>
+    <SaleItems document={document} catalog={catalog} lots={lots} />
+    <ExtrasBlock extras={document.extras ?? []} label="Precio extras" />
+    <div className="sum-grid">
+      <div>
+        <SummaryRow label="Ingresos" value={<Money cents={total} currency={currency} original={summary?.originalTotalCents} documentCurrency={document.currency as Currency} tc={document.tc} />} strong />
+        <SummaryRow label="Costo base de lotes" value={<Money cents={costing?.costBaseCents ?? 0} />} />
+        <SummaryRow label="Costos extras proporcional" value={<Money cents={costing?.costExtraCents ?? 0} />} />
+        <SummaryRow label="Utilidad" value={<Money cents={costing?.profitCents ?? 0} />} tone="ok" strong />
+      </div>
+      <div>
+        <SummaryRow label="Pagado" value={<Money cents={summary?.paidCents ?? 0} />} tone="ok" />
+        <SummaryRow label="Saldo" value={<Money cents={balance} />} tone={balance > 0 ? 'warn' : undefined} strong={balance > 0} />
+        {charges.length > 0 && <PaymentNotes payments={charges} />}
+      </div>
+    </div>
+    <div className="rec__foot">
+      <div className="hstack hstack--wrap">{advance && <span className="tag">Adelanto {advance.code} · Aplicado</span>}</div>
+      <div className="hstack">
+        {balance > 0 && <PaymentAction sale={document} />}
+        <button type="button" className="btn btn--xs" disabled={busy || row.status === 'voided'} onClick={() => onEdit(document, true)}>Editar extras</button>
+        {row.status !== 'voided' && <button type="button" className="btn btn--xs" disabled={busy} onClick={() => onEdit(document)}>Editar</button>}
+        {row.status === 'voided'
+          ? <RowMenu label="Más acciones" items={[{ label: 'Restaurar venta', icon: <Undo2 size={13} />, disabled: busy, onSelect: () => void act(() => api.Sales.Restore(Number(row.id)), 'Venta restaurada') }]} />
+          : <RowMenu label="Más acciones" items={[{ label: 'Anular venta', icon: <XCircle size={13} />, danger: true, disabled: busy, onSelect: () => void act(() => api.Sales.Void(Number(row.id)), 'Venta anulada') }]} />}
+      </div>
+    </div>
+  </div></div>
+}
+
+function ShipmentDetail({ document, row, catalog, lots, summary, costing, busy, act, onEdit }: SaleDetailProps) {
+  const currency = useStore((state) => state.currency)
+  const payments = (document.payments ?? []).filter((payment) => payment.kind === 'payment')
+  const client = document.clientId == null ? null : catalog.clients.find((entry) => Number(entry.id) === Number(document.clientId))
+  const balance = Number(summary?.balanceCents ?? 0)
+  const total = Number(summary?.totalCents ?? row.totalCents ?? 0)
+
+  return <div className="rec__body"><div className="rec__bodyin">
+    <div className="meta-grid">
+      <div className="meta-grid__cell"><span className="meta-grid__k">Cliente</span><span className="meta-grid__v">{client ? <EntityLink kind="client" id={client.id}>{client.name}</EntityLink> : 'Cliente general'}</span></div>
+      <div className="meta-grid__cell"><span className="meta-grid__k">Dirección</span><span className="meta-grid__v">{document.shipAddress} / {document.shipRegion}</span></div>
+      <div className="meta-grid__cell"><span className="meta-grid__k">Fecha</span><span className="meta-grid__v">{fmtDate(document.date)}</span></div>
+      <div className="meta-grid__cell"><span className="meta-grid__k">Código de seguridad</span><span className="meta-grid__v"><span className="lotchip lotchip--static">{document.securityCode}</span></span></div>
+    </div>
+    <SaleItems document={document} catalog={catalog} lots={lots} />
+    <ExtrasBlock extras={document.extras ?? []} label="Precio extras" />
+    <div className="sum-grid">
+      <div>
+        <SummaryRow label="Ingresos" value={<Money cents={total} currency={currency} original={summary?.originalTotalCents} documentCurrency={document.currency as Currency} tc={document.tc} />} strong />
+        <SummaryRow label="Utilidad" value={<Money cents={costing?.profitCents ?? 0} />} tone="ok" />
+      </div>
+      <div>
+        <SummaryRow label="Pagado" value={<Money cents={summary?.paidCents ?? 0} />} tone="ok" />
+        {balance > 0 && <SummaryRow label={<span className="saldo-amber">Saldo {formatMoney(balance, currency)}</span>} value={<PaymentAction sale={document} />} />}
+        {payments.length > 0 && <PaymentNotes payments={payments} />}
+      </div>
+    </div>
+    <div className="rec__foot">
+      <div className="hstack">
+        <button type="button" className="btn btn--xs" onClick={() => printShipment(document, catalog.products, client?.name ?? 'Cliente general', Number(summary?.originalTotalCents ?? 0))}><Printer size={13} /> Comprobante</button>
+        {row.status === 'prepared' && <button type="button" className="btn btn--primary btn--xs" disabled={busy} onClick={() => void act(() => api.Sales.AdvanceShipment(Number(row.id)), 'Envío marcado como enviado')}><Send size={13} /> Marcar enviado</button>}
+        {row.status === 'sent' && <button type="button" className="btn btn--primary btn--xs" disabled={busy} onClick={() => void act(() => api.Sales.AdvanceShipment(Number(row.id)), 'Envío marcado como entregado')}><CircleCheck size={13} /> Marcar entregado</button>}
+        <button type="button" className="btn btn--xs" disabled={busy || row.status === 'voided'} onClick={() => onEdit(document, true)}>Editar extras</button>
+        {row.status !== 'voided' && <button type="button" className="btn btn--xs" disabled={busy} onClick={() => onEdit(document)}>Editar</button>}
+        {row.status === 'voided'
+          ? <RowMenu label="Más acciones" items={[{ label: 'Restaurar envío', icon: <Undo2 size={13} />, disabled: busy, onSelect: () => void act(() => api.Sales.Restore(Number(row.id)), 'Envío restaurado') }]} />
+          : <RowMenu label="Más acciones" items={[{ label: 'Anular envío', icon: <XCircle size={13} />, danger: true, disabled: busy, onSelect: () => void act(() => api.Sales.Void(Number(row.id)), 'Envío anulado') }]} />}
+      </div>
+    </div>
+  </div></div>
+}
+
+function SaleItems({ document, catalog, lots }: { document: service.Sale; catalog: Catalog; lots: Record<number, Row> }) {
+  return <div className="table-scroll"><table className="tbl docitems-table" aria-label={`Productos de ${document.kind === 'shipment' ? 'envío' : 'venta'} ${document.code}`}>
+    <thead><tr><th>Producto</th><th>Detalle</th><th className="num">Cant.</th><th className="num">Precio unit.</th><th className="num">Subtotal</th></tr></thead>
+    <tbody>{(document.items ?? []).map((item, index) => {
+      const product = catalog.products.find((entry) => Number(entry.id) === Number(item.productId))
+      const lot = lots[Number(item.lotId)]
+      return <tr key={`${item.productId}-${item.lotId}-${index}`}>
+        <td><EntityLink kind="product" id={item.productId}>{product?.name ?? `Producto ${item.productId}`}</EntityLink></td>
+        <td>{lot ? <EntityLink kind="lot" id={item.lotId} chip>{lot.code}</EntityLink> : <span className="muted">-</span>}</td>
+        <td className="num">{item.qty}</td>
+        <td className="num"><Money cents={item.unitPriceCents} currency={document.currency as Currency} /></td>
+        <td className="num"><Money cents={item.qty * item.unitPriceCents} currency={document.currency as Currency} /></td>
+      </tr>
+    })}</tbody>
+  </table></div>
+}
+
+function ExtrasBlock({ extras, label }: { extras: service.Extra[]; label: string }) {
+  if (!extras.length) return null
+  return <div className="extras"><span className="extras__label">{label}</span><div className="extras__list">{extras.map((extra, index) => <span className="extras__item" key={extra.id ?? index}>{extra.concept} <Money cents={extra.amountCents} currency={extra.currency as Currency} /></span>)}</div></div>
+}
+
+function PaymentNotes({ payments }: { payments: service.Payment[] }) {
+  const method = (value: string) => value === 'card' ? 'Tarjeta' : value === 'wallet' ? 'Billetera digital' : 'Efectivo'
+  return <div className="sumnote">{payments.map((payment) => <span key={payment.id}>{fmtDateShort(payment.date)} · {formatMoney(payment.amountCents, payment.currency as Currency)} ({method(payment.method)})</span>)}</div>
+}
+
+function SummaryRow({ label, value, strong, tone }: { label: ReactNode; value: ReactNode; strong?: boolean; tone?: 'ok' | 'warn' }) {
+  return <div className={cx('sumrow', strong && 'sumrow--strong', tone && `sumrow--${tone}`)}><span>{label}</span><span className="sumrow__v">{value}</span></div>
+}
+
+function PurchaseDetail({ document, row, counterparty, catalog, lots, advances, totals, busy, act, onEdit }: {
+  document: service.Purchase
+  row: Row
+  counterparty: string
+  catalog: Catalog
+  lots: Record<number, Row>
+  advances: Row[]
+  totals: service.DocumentTotals | null
+  busy: boolean
+  act: (action: () => Promise<unknown>, label: string) => Promise<void>
+  onEdit: (record: service.Purchase | service.Sale, extrasOnly?: boolean) => void
+}) {
+  const displayCurrency = useStore((state) => state.currency)
+  const card = catalog.cards.find((entry) => Number(entry.id) === Number(document.cardId))
+  const received = Boolean(document.receivedAt)
+  const purchaseLots = Object.values(lots).filter((lot) => !lot.voided_at && (document.items ?? []).some((item) => Number(item.id) === Number(lot.purchase_item_id)))
+  const method = document.paymentMethod === 'card' ? 'Tarjeta' : document.paymentMethod === 'wallet' ? 'Billetera digital' : 'Efectivo'
+
+  return <div className="rec__body"><div className="rec__bodyin">
+    <div className="meta-grid">
+      <div className="meta-grid__cell"><span className="meta-grid__k">Proveedor</span><span className="meta-grid__v"><EntityLink kind="supplier" id={document.supplierId}>{counterparty}</EntityLink></span></div>
+      <div className="meta-grid__cell"><span className="meta-grid__k">Método de pago</span><span className="meta-grid__v">{method}</span></div>
+      <div className="meta-grid__cell"><span className="meta-grid__k">Fecha</span><span className="meta-grid__v">{fmtDate(document.date)}</span></div>
+      {received && <div className="meta-grid__cell"><span className="meta-grid__k">Recepción</span><span className="meta-grid__v">{fmtDate(document.receivedAt)}</span></div>}
+    </div>
+    <div className="table-scroll"><table className="tbl docitems-table" aria-label={`Productos de la compra ${document.code}`}>
+      <thead><tr><th>Producto</th><th>Detalle</th><th className="num">Cant.</th><th className="num">Costo unit.</th><th className="num">Subtotal</th></tr></thead>
+      <tbody>{(document.items ?? []).map((item, index) => {
+        const product = catalog.products.find((entry) => Number(entry.id) === Number(item.productId))
+        const itemLots = purchaseLots.filter((lot) => Number(lot.purchase_item_id) === Number(item.id))
+        return <tr key={item.id || index}>
+          <td><EntityLink kind="product" id={item.productId}>{product?.name ?? `Producto ${item.productId}`}</EntityLink></td>
+          <td><div className="docitems-table__detail">{item.description && <span>{item.description}</span>}{itemLots.map((lot) => <EntityLink key={lot.id} kind="lot" id={lot.id} chip>{lot.code}</EntityLink>)}</div></td>
+          <td className="num">{item.qty}</td>
+          <td className="num"><Money cents={item.unitCostCents} currency={document.currency as Currency} /></td>
+          <td className="num"><Money cents={item.qty * item.unitCostCents} currency={document.currency as Currency} /></td>
+        </tr>
+      })}</tbody>
+    </table></div>
+    {!!document.extras?.length && <div className="extras"><span className="extras__label">Costos extras</span><div className="extras__list">{document.extras.map((extra) => <span className="extras__item" key={extra.id}>{extra.concept} <Money cents={extra.amountCents} currency={extra.currency as Currency} /></span>)}</div></div>}
+    <div className="sum-grid"><div>
+      <div className="sumrow"><span>Base</span><Money cents={totals?.subtotalCents ?? 0} currency={displayCurrency} original={totals?.originalSubtotalCents} documentCurrency={document.currency as Currency} tc={document.tc} /></div>
+      <div className="sumrow"><span>Costos extras</span><Money cents={totals?.extrasCents ?? 0} currency={displayCurrency} original={totals?.originalExtrasCents} documentCurrency={document.currency as Currency} tc={document.tc} /></div>
+      <div className="sumrow sumrow--strong"><span>Total</span><Money cents={totals?.totalCents ?? row.totalCents ?? 0} currency={displayCurrency} original={totals?.originalTotalCents ?? row.originalTotalCents} documentCurrency={document.currency as Currency} tc={document.tc} /></div>
+    </div><div>
+      {document.forClientId && <div className="sumrow"><span>Encargo para</span><EntityLink kind="client" id={document.forClientId}>{catalog.clients.find((entry) => Number(entry.id) === Number(document.forClientId))?.name ?? 'Cliente'}</EntityLink></div>}
+      {advances.map((advance) => <div className="sumrow" key={advance.id}><span>Adelanto · {advance.status === 'active' ? 'Vigente' : advance.status === 'applied' ? 'Aplicado' : advance.status === 'refunded' ? 'Devuelto' : 'Anulado'}</span><Money cents={advance.amount_cents} currency={advance.currency as Currency} /></div>)}
+    </div></div>
+    <div className="rec__foot">
+      <div className="hstack hstack--wrap">{purchaseLots.length > 0 && <EntityLink kind="lot" id={purchaseLots[0].id} chip>{purchaseLots.length} lote{purchaseLots.length === 1 ? '' : 's'}</EntityLink>}{card && <EntityLink kind="card" id={card.id} chip>{card.name}</EntityLink>}{document.forClientId && <span className="tag">Para cliente</span>}</div>
+      <div className="hstack">
+        <button type="button" className="btn btn--xs" disabled={busy} onClick={() => onEdit(document, true)}>Editar extras</button>
+        {row.status === 'pending' && <button type="button" className="btn btn--xs" disabled={busy} onClick={() => onEdit(document)}>Editar</button>}
+        {row.status === 'pending' && <button type="button" className="btn btn--primary btn--xs" disabled={busy} onClick={() => void act(() => api.Purchases.ReceivePurchase(Number(row.id)), 'Compra recibida')}><CircleCheck size={13} /> Marcar recibida</button>}
+        {document.forClientId && row.status === 'pending' && <AdvanceAction purchase={document} />}
+        {row.status === 'reserved' && <SellReservedAction purchase={document} catalog={catalog} />}
+        {row.status === 'reserved' && <button type="button" className="btn btn--xs" disabled={busy} onClick={() => window.confirm('¿Cancelar el encargo? Los lotes se liberarán y los adelantos activos pasarán a Devuelto.') && void act(() => api.Purchases.CancelOrder(Number(row.id)), 'Encargo cancelado')}>Cancelar encargo</button>}
+        {row.status === 'voided'
+          ? <RowMenu label="Más acciones" items={[{ label: 'Restaurar compra', icon: <Undo2 size={13} />, disabled: busy, onSelect: () => void act(() => api.Purchases.Restore(Number(row.id)), 'Compra restaurada') }]} />
+          : <RowMenu label="Más acciones" items={[{ label: 'Anular compra', icon: <XCircle size={13} />, danger: true, disabled: busy, onSelect: () => void act(() => api.Purchases.Void(Number(row.id)), 'Compra anulada') }]} />}
+      </div>
+    </div>
   </div></div>
 }
 

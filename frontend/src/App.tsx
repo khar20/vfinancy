@@ -6,7 +6,8 @@ import { parseError } from './lib/errors'
 import { cx } from './lib/format'
 import { Toasts, Seg } from './components/ui'
 import { InventoryPage } from './views/InventoryPage'
-import { ContactsPage } from './views/ContactsPage'
+import { ClientsPage } from './views/ClientsPage'
+import { SuppliersPage } from './views/SuppliersPage'
 import { CardsPage } from './views/CardsPage'
 import { DocsPage } from './views/DocsPage'
 import { DashboardPage } from './views/DashboardPage'
@@ -58,7 +59,7 @@ function Shell() {
     return () => window.removeEventListener('keydown', listener)
   }, [currency, setCurrency, newAction])
   useEffect(() => { setMobileOpen(false) }, [location.pathname])
-  return <div className="shell shell--grid"><div className={mobileOpen ? 'mobile-shade is-visible' : 'mobile-shade'} onClick={() => setMobileOpen(false)} /><Sidebar /><div className="shell__main"><header className="topbar"><button type="button" className="topbar__burger" aria-label="Abrir menú" onClick={() => setMobileOpen((value) => !value)}><Menu size={18} /></button><div className="topbar__crumb"><span>vfinancy</span><span className="topbar__sep">/</span><b>{title}</b></div><div className="topbar__tools"><Seg label="Moneda de visualización" options={[{ value: 'PEN', label: 'S/' }, { value: 'USD', label: '$' }]} value={currency} onChange={setCurrency} /></div></header><main className="page"><Routes><Route path="/" element={<DashboardPage />} /><Route path="/compras" element={<DocsPage kind="purchase" />} /><Route path="/inventario" element={<InventoryPage />} /><Route path="/inventario/producto/:id" element={<ProductDetailPage />} /><Route path="/ventas" element={<DocsPage kind="sale" />} /><Route path="/envios" element={<DocsPage kind="shipment" />} /><Route path="/tarjetas" element={<CardsPage />} /><Route path="/clientes/*" element={<ContactsPage kind="client" />} /><Route path="/proveedores/*" element={<ContactsPage kind="supplier" />} /><Route path="/ajustes" element={<SettingsPage />} /><Route path="*" element={<Navigate to="/" replace />} /></Routes></main></div><Toasts /></div>
+  return <div className="shell shell--grid"><div className={mobileOpen ? 'mobile-shade is-visible' : 'mobile-shade'} onClick={() => setMobileOpen(false)} /><Sidebar /><div className="shell__main"><header className="topbar"><button type="button" className="topbar__burger" aria-label="Abrir menú" onClick={() => setMobileOpen((value) => !value)}><Menu size={18} /></button><div className="topbar__crumb"><span>vfinancy</span><span className="topbar__sep">/</span><b>{title}</b></div><div className="topbar__tools"><Seg label="Moneda de visualización" options={[{ value: 'PEN', label: 'S/' }, { value: 'USD', label: '$' }]} value={currency} onChange={setCurrency} /></div></header><main className="page"><Routes><Route path="/" element={<DashboardPage />} /><Route path="/compras" element={<DocsPage kind="purchase" />} /><Route path="/inventario" element={<InventoryPage />} /><Route path="/inventario/producto/:id" element={<ProductDetailPage />} /><Route path="/ventas" element={<DocsPage kind="sale" />} /><Route path="/envios" element={<DocsPage kind="shipment" />} /><Route path="/tarjetas" element={<CardsPage />} /><Route path="/clientes" element={<ClientsPage />} /><Route path="/clientes/:clientId" element={<ClientsPage />} /><Route path="/proveedores" element={<SuppliersPage />} /><Route path="/proveedores/:supplierId" element={<SuppliersPage />} /><Route path="/ajustes" element={<SettingsPage />} /><Route path="*" element={<Navigate to="/" replace />} /></Routes></main></div><Toasts /></div>
 }
 
 export default function App() {

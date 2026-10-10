@@ -1,65 +1,63 @@
 import { useEffect, useState } from 'react'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
 import { service } from '../../wailsjs/go/models'
-import { api, query } from '../data/api'
-import type { Currency } from '../data/api'
+import { api, allPages } from '../data/api'
 import { useStore } from '../data/store'
 import { statusView } from '../data/status'
-import { fmtDate, fmtDateShort, fmtMoney, monthLabel } from '../lib/format'
-import { Badge, Card, Empty, Loading, Money, Seg, ViewHead } from '../components/ui'
+import { fmtDate, fmtDateShort, monthLabel } from '../lib/format'
+import { Badge, Card, Empty, Loading, Money, Seg, StatusBadge, ViewHead } from '../components/ui'
+import { HBars, TimeCompare } from '../components/charts'
 
 type Row = Record<string, any>
+type Period = 'month' | 'quarter' | 'year' | 'total'
 
 export function DashboardPage() {
   const currency = useStore((state) => state.currency)
   const revision = useStore((state) => state.revision)
-  const [period, setPeriod] = useState<'month' | 'quarter' | 'year' | 'total'>('month')
-  const [offset, setOffset] = useState(0)
-  const date = new Date()
-  date.setMonth(date.getMonth() + offset * (period === 'month' ? 1 : period === 'quarter' ? 3 : 12))
-  const anchor = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
-  const [snapshot, setSnapshot] = useState<{ key: string; dashboard: Row; receivables: Row[] } | null>(null)
-  const [loading, setLoading] = useState(true)
+  const navigate = useNavigate()
+  const [period,setPeriod]=useState<Period>('month'),[offset,setOffset]=useState(0)
+  const now = new Date()
+  now.setMonth(now.getMonth()+offset*(period==='month'?1:period==='quarter'?3:12))
+  const anchor = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`
   const queryKey = `${period}-${anchor}-${currency}-${revision}`
-  useEffect(() => {
-    let active = true
+  const [snapshot,setSnapshot]=useState<{key:string;data:Row;receivables:Row[];clients:Row[]}|null>(null)
+  const [loading,setLoading]=useState(true)
+  useEffect(()=>{
+    let active=true
     setLoading(true)
-    void Promise.all([
-      api.Dashboard.GetDashboard(period, anchor, currency),
-      api.Sales.List(query(currency, [new service.Filter({ field: 'balance', op: '>', value: 0 })], '', 6)),
-    ]).then(([dashboard, page]) => { if (active) { setSnapshot({ key: queryKey, dashboard: dashboard as Row, receivables: page.months.flatMap((month) => month.rows as Row[]) }); setLoading(false) } }).catch(() => { if (active) setLoading(false) })
-    return () => { active = false }
-  }, [queryKey])
-  const dashboard = snapshot?.key === queryKey ? snapshot.dashboard : null
-  const receivables = snapshot?.key === queryKey ? snapshot.receivables : []
-  return <><ViewHead title="Inicio" subtitle={`Resumen del período · ${monthLabel(anchor)}`} actions={<><button type="button" className="iconbtn" aria-label="Período anterior" onClick={() => setOffset((value) => value - 1)}><ChevronLeft size={15} /></button><button type="button" className="iconbtn" aria-label="Período siguiente" disabled={period === 'total' || offset >= 0} onClick={() => setOffset((value) => Math.min(0, value + 1))}><ChevronRight size={15} /></button><Seg label="Período" options={[{ value: 'month', label: 'Mes' }, { value: 'quarter', label: 'Trimestre' }, { value: 'year', label: 'Año' }, { value: 'total', label: 'Total' }]} value={period} onChange={(value) => { setPeriod(value); setOffset(0) }} /></>} />{loading ? <Loading /> : dashboard && <><div className="kpis"><div className="kpi kpi--accent"><span className="kpi__label">Ventas</span><span className="kpi__value"><Money cents={dashboard.sales ?? 0} /></span><span className="kpi__sub">ventas y envíos vigentes del período</span></div><div className="kpi"><span className="kpi__label">Costos</span><span className="kpi__value"><Money cents={(dashboard.costBase ?? 0) + (dashboard.costExtra ?? 0)} /></span><span className="kpi__sub">Base {fmtMoney(dashboard.costBase, currency)} · Extras {fmtMoney(dashboard.costExtra, currency)}</span></div><div className="kpi kpi--accent"><span className="kpi__label">Utilidad</span><span className="kpi__value"><Money cents={dashboard.profit ?? 0} /></span></div></div><div className="grid-dash"><Card title="Ventas − Costos − Utilidad" subtitle="Detalle por mes"><DashboardChart data={dashboard.series ?? []} currency={currency} /></Card><Card title="Desglose de costos" subtitle="Base de lotes y extras por concepto">{(dashboard.extrasByConcept ?? []).map((row: Row) => <div className="sumrow" key={row.concept}><span>{row.concept}</span><Money cents={row.amount} /></div>)}</Card><Card title="Cuentas por cobrar" subtitle="Ventas y envíos con saldo, agrupados por mes" className="span6" flush>{receivables.length ? groupMonths(receivables).map(([month, rows]) => <section className="jmonth" key={month}><header className="jmonth__head"><h2>{monthLabel(month)}</h2><span className="jmonth__stats">{rows.length} registros</span></header>{rows.map((row) => { const kind = row.kind === 'shipment' ? 'envios' : 'ventas'; return <button type="button" className={`listrow listrow--click tint--${statusView('sales', row.status)?.tone ?? 'amber'}`} key={row.id} onClick={() => { window.location.hash = `#/${kind}?abrir=${encodeURIComponent(row.code)}` }}><span className="listrow__main"><b>{row.code} · {row.client ?? 'Cliente general'}</b><span className="listrow__meta">{fmtDateShort(row.date)}</span></span><span className="listrow__amount"><Money cents={row.balanceCents} /></span><Badge state={statusView('sales', row.status)} /></button>})}</section>) : <Empty>Todo cobrado</Empty>}</Card><Card title="Lotes en remate" subtitle="Lotes con stock disponible" className="span6" flush>{(dashboard.auctions ?? []).length ? (dashboard.auctions as Row[]).map((row) => <button type="button" className="listrow listrow--click tint--red" key={row.id} onClick={() => { window.location.hash = `#/inventario?tab=lots&lote=${row.id}` }}><span className="listrow__main"><b>{row.product}</b><span className="listrow__meta">{row.code} · {row.daysInAuction} días en remate</span></span><span>{row.available} uds</span><Badge state={statusView('lots', 'auction')} /></button>) : <Empty>Sin lotes en remate</Empty>}</Card><Card title="Alertas ligeras" className="span12" flush><Alerts data={dashboard.alerts ?? {}} /></Card></div></>}</>
+    const open = new service.Filter({field:'balance',op:'>',value:0})
+    void Promise.all([api.Dashboard.GetDashboard(period,anchor,currency),allPages(api.Sales.List,currency,[open]),allPages(api.Catalog.ListClients,currency)])
+      .then(([data,receivables,clients])=>{if(active){setSnapshot({key:queryKey,data:data as Row,receivables,clients});setLoading(false)}})
+      .catch(()=>{if(active)setLoading(false)})
+    return ()=>{active=false}
+  },[queryKey])
+  const data=snapshot?.key===queryKey?snapshot.data:null
+  const receivables=snapshot?.key===queryKey?snapshot.receivables:[]
+  const clients=snapshot?.key===queryKey?snapshot.clients:[]
+  const receivableGroups=groupMonths(receivables)
+  const series=(data?.series??[]).map((row:Row)=>({label:monthLabel(row.month).slice(0,3),a:Number(row.sales),b:Number(row.costBase)+Number(row.costExtra),line:Number(row.profit)}))
+  const totalReceivables=receivables.reduce((sum,row)=>sum+Number(row.balanceCents??0),0)
+  const totalSales=Number(data?.sales??0), totalCost=Number(data?.costBase??0)+Number(data?.costExtra??0)
+  return <>
+    <ViewHead title="Inicio" subtitle={`Resumen del período · ${monthLabel(anchor)} · montos en ${currency==='PEN'?'S/':'$'}`} actions={<><div className="hstack"><button type="button" className="iconbtn" aria-label="Período anterior" onClick={()=>setOffset((value)=>value-1)}><ChevronLeft size={15}/></button><button type="button" className="iconbtn" aria-label="Período siguiente" disabled={period==='total'||offset>=0} onClick={()=>setOffset((value)=>Math.min(0,value+1))}><ChevronRight size={15}/></button></div><Seg label="Período del resumen" options={[{value:'month',label:'Mes'},{value:'quarter',label:'Trimestre'},{value:'year',label:'Año'},{value:'total',label:'Total'}]} value={period} onChange={(value)=>{setPeriod(value);setOffset(0)}}/></>}/>
+    {loading||!data?<Loading/>:<>
+      <div className="kpis"><div className="kpi kpi--accent"><span className="kpi__label">Ventas</span><span className="kpi__value"><Money cents={data.sales}/></span><div className="kpi__foot"><span className="kpi__sub">ventas y envíos vigentes del período</span></div></div><div className="kpi"><span className="kpi__label">Costos</span><span className="kpi__value"><Money cents={totalCost}/></span><div className="kpi__foot"><span className="kpi__sub">base <Money cents={data.costBase} className="money--inline"/> · extras <Money cents={data.costExtra} className="money--inline"/></span></div></div><div className="kpi kpi--accent"><span className="kpi__label">Utilidad</span><span className="kpi__value"><Money cents={data.profit}/></span><div className="kpi__foot"><span className="kpi__sub">{totalSales>0?`${(Number(data.profit)/totalSales*100).toFixed(1)} % sobre ventas`:'sin ventas en el período'}</span></div></div><div className="kpi"><span className="kpi__label">Por cobrar</span><span className="kpi__value"><Money cents={totalReceivables}/></span><div className="kpi__foot"><span className="kpi__sub">{receivables.length} ventas/envíos con saldo</span></div></div></div>
+      <div className="grid-dash">
+        <Card title="Ventas − Costo base − Costos extras = Utilidad" subtitle="Barras agrupadas por mes · detalle al pasar el cursor" className="span8">{series.length?<TimeCompare data={series} aLabel="Ventas" bLabel="Costos" lineLabel="Utilidad"/>:<Empty>Sin datos en el período</Empty>}</Card>
+        <Card title="Desglose de costos" subtitle="Base de lotes vendidos + extras prorrateados por unidades vendidas" className="span4"><div className="statline"><div><span>Base (lotes)</span><b><Money cents={data.costBase}/></b></div><div><span>Extras</span><b><Money cents={data.costExtra}/></b></div></div>{data.extrasByConcept?.length?<HBars items={data.extrasByConcept.slice(0,6).map((row:Row)=>({label:row.concept,value:Number(row.amount)}))} fmt={(value)=> <Money cents={value}/>}/>:<Empty>Sin extras en el período</Empty>}</Card>
+        <Card title="Cuentas por cobrar" subtitle="Ventas y envíos con saldo, agrupados por mes" className="span6" flush>{!receivableGroups.length&&<Empty>Todo cobrado</Empty>}{receivableGroups.map(([month,rows])=><section className="jmonth" key={month}><header className="jmonth__head"><h2>{monthLabel(month)}</h2><span className="jmonth__stats">Total <Money cents={rows.reduce((sum,row)=>sum+Number(row.balanceCents??0),0)}/></span></header>{rows.map((row)=><button key={row.code} type="button" className={`listrow listrow--click ${statusView('sales',row.status)?`stripe stripe--${statusView('sales',row.status)?.tone}`:''}`} onClick={()=>navigate(`/${row.kind==='shipment'?'envios':'ventas'}?abrir=${encodeURIComponent(row.code)}`)}><span className="listrow__main"><span className="listrow__title">{row.code} · {clients.find((client)=>Number(client.id)===Number(row.client_id))?.name??'Cliente general'}</span><span className="listrow__meta">{fmtDateShort(row.date)}</span></span><span className="listrow__amount"><Money cents={row.balanceCents}/></span><StatusBadge state={statusView('sales',row.status)}/></button>)}</section>)}</Card>
+        <Card title="Lotes en remate" subtitle="Lotes con stock disponible que superaron su cuenta regresiva" className="span6" flush>{!data.auctions?.length&&<Empty>Sin lotes en remate</Empty>}{(data.auctions??[]).map((row:Row)=><button key={row.id} type="button" className="listrow listrow--click stripe stripe--red" onClick={()=>navigate(`/inventario?tab=lots&lote=${row.id}`)}><span className="listrow__main"><span className="listrow__title">{row.product}</span><span className="listrow__meta">{row.code} · ingresado {fmtDateShort(row.entryDate)}</span></span><span className="listrow__amount">{row.available} uds</span><span className="listrow__sub">{row.daysInAuction} días en remate</span><StatusBadge state={statusView('lots','auction')}/></button>)}</Card>
+        <Card title="Alertas ligeras" subtitle="Compras pendientes · ciclos por pagar o vencidos · ventas atrasadas" className="span6" flush><Alerts data={data.alerts??{}} navigate={navigate}/></Card>
+      </div>
+    </>}
+  </>
 }
 
-function groupMonths(rows: Row[]): Array<[string, Row[]]> {
-  const groups = new Map<string, Row[]>()
-  for (const row of rows) { const key = String(row.date).slice(0, 7); groups.set(key, [...(groups.get(key) ?? []), row]) }
-  return [...groups.entries()].sort((a, b) => b[0].localeCompare(a[0]))
-}
+function groupMonths(rows:Row[]):Array<[string,Row[]]>{const groups=new Map<string,Row[]>();for(const row of rows){const month=String(row.date).slice(0,7);groups.set(month,[...(groups.get(month)??[]),row])}return [...groups.entries()].sort((a,b)=>b[0].localeCompare(a[0]))}
 
-function DashboardChart({ data, currency }: { data: Row[]; currency: Currency }) {
-  if (!data.length) return <Empty>Sin datos en el período</Empty>
-  const [hover, setHover] = useState<number | null>(null)
-  const W = 720, H = 260, left = 58, right = 16, top = 16, bottom = 32
-  const innerW = W - left - right, innerH = H - top - bottom
-  const max = Math.max(1, ...data.flatMap((row) => [row.sales, row.costBase, row.costExtra, Math.max(0, row.profit)]))
-  const y = (value: number) => top + innerH - value / max * innerH
-  const slot = innerW / data.length, barWidth = Math.min(16, slot * 0.18)
-  const centers = data.map((_, index) => left + slot * (index + 0.5))
-  const line = data.map((row, index) => `${centers[index]},${y(row.profit)}`).join(' ')
-  const ticks = [0, 0.25, 0.5, 0.75, 1]
-  return <div className="tchart"><svg className="tchart__svg" viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Ventas, costos base, costos extras y utilidad por mes">{ticks.map((fraction) => { const yy = y(max * fraction); return <g key={fraction}><line className="tchart__grid" x1={left} x2={W - right} y1={yy} y2={yy} /><text className="tchart__tick" x={left - 7} y={yy + 3} textAnchor="end">{fmtMoney(Math.round(max * fraction), currency)}</text></g>})}<line className="tchart__axis" x1={left} x2={W - right} y1={y(0)} y2={y(0)} />{data.map((row, index) => { const center = centers[index]; const vals = [row.sales, row.costBase, row.costExtra]; return <g key={row.month} onMouseEnter={() => setHover(index)} onMouseLeave={() => setHover(null)}><rect className="tchart__hoverzone" x={left + index * slot} y={top} width={slot} height={innerH} /><rect className="tchart__barA" x={center - barWidth * 1.65} y={y(vals[0])} width={barWidth} height={Math.max(0, y(0) - y(vals[0]))} /><rect className="tchart__barB" x={center - barWidth / 2} y={y(vals[1])} width={barWidth} height={Math.max(0, y(0) - y(vals[1]))} /><rect className="tchart__barC" x={center + barWidth * .65} y={y(vals[2])} width={barWidth} height={Math.max(0, y(0) - y(vals[2]))} /><text className="tchart__tick" x={center} y={H - 8} textAnchor="middle">{monthLabel(row.month).slice(0, 3)}</text></g>})}<polyline className="tchart__line" points={line} /><g>{data.map((row, index) => <circle key={row.month} className="tchart__dot" cx={centers[index]} cy={y(row.profit)} r={hover === index ? 4 : 3} onMouseEnter={() => setHover(index)} onMouseLeave={() => setHover(null)} />)}</g></svg>{hover != null && <div className="tchart__tip" style={{ left: `${Math.max(8, Math.min(82, centers[hover] / W * 100))}%` }}><b className="tchart__tiphead">{monthLabel(data[hover].month)}</b><span><i className="dot dot--a" /> Ventas: <b>{fmtMoney(data[hover].sales, currency)}</b></span><span><i className="dot dot--b" /> Costo base: <b>{fmtMoney(data[hover].costBase, currency)}</b></span><span><i className="dot dot--c" /> Costos extras: <b>{fmtMoney(data[hover].costExtra, currency)}</b></span><span><i className="dot dot--l" /> Utilidad: <b>{fmtMoney(data[hover].profit, currency)}</b></span></div>}<div className="tchart__legend"><span><i className="dot dot--a" />Ventas</span><span><i className="dot dot--b" />Costo base</span><span><i className="dot dot--c" />Extras</span><span><i className="dot dot--l" />Utilidad</span></div></div>
-}
-
-function Alerts({ data }: { data: Row }) {
-  const items = [
-    ...(data.pendingPurchases ?? []).map((row: Row) => ({ code: row.code, date: row.date, label: `${row.code} sigue pendiente`, tone: 'amber', path: 'compras' })),
-    ...(data.cardCycles ?? []).map((row: Row) => ({ code: row.cardName, date: row.dueDate, label: `${row.cardName} · ciclo ${fmtDate(row.cycleEnd)}`, tone: 'red', path: 'tarjetas', cardId: row.cardId, cycleEnd: row.cycleEnd })),
-    ...(data.overdueSales ?? []).map((row: Row) => ({ code: row.code, date: row.date, label: `${row.code} atrasada`, tone: 'red', path: 'ventas' })),
-  ]
-  return items.length ? items.map((row, index) => <button className={`listrow listrow--click tint--${row.tone}`} key={`${row.code}-${index}`} type="button" onClick={() => { window.location.hash = row.path === 'tarjetas' ? `#/tarjetas?cardId=${row.cardId}&cycleEnd=${row.cycleEnd}` : `#/${row.path}?abrir=${encodeURIComponent(row.code)}` }}><span className="listrow__main"><b>{row.label}</b><span className="listrow__meta">{fmtDate(row.date)}</span></span><Badge>{row.path === 'tarjetas' ? 'tarjeta' : row.path === 'compras' ? 'compra' : 'venta'}</Badge></button>) : <Empty>Sin alertas</Empty>
+function Alerts({data,navigate}:{data:Row;navigate:(path:string)=>void}){
+  const rows=[...(data.pendingPurchases??[]).map((row:Row)=>({...row,label:`${row.code} sigue pendiente`,kind:'purchase'})),...(data.cardCycles??[]).map((row:Row)=>({...row,label:`${row.cardName} · ciclo ${fmtDate(row.cycleEnd)}`,kind:'cycle'})),...(data.overdueSales??[]).map((row:Row)=>({...row,label:`${row.code} atrasada`,kind:row.kind==='shipment'?'shipment':'sale'}))]
+  if(!rows.length)return <Empty>Sin alertas</Empty>
+  return <>{rows.map((row,index)=>{const path=row.kind==='purchase'?`/compras?abrir=${encodeURIComponent(row.code)}`:row.kind==='cycle'?`/tarjetas?cardId=${row.cardId}&cycleEnd=${row.cycleEnd}`:`/${row.kind==='shipment'?'envios':'ventas'}?abrir=${encodeURIComponent(row.code)}`;return <button key={`${row.kind}-${row.id??row.code}-${index}`} className={`listrow listrow--click ${row.kind==='purchase'?'stripe stripe--amber':row.kind==='cycle'?'stripe stripe--red':'stripe stripe--red'}`} type="button" onClick={()=>navigate(path)}><span className="listrow__main"><span className="listrow__title">{row.label}</span><span className="listrow__meta">{fmtDate(row.date??row.dueDate)}</span></span><Badge tone={row.kind==='purchase'?'amber':'red'}>{row.kind==='cycle'?'tarjeta':row.kind==='purchase'?'compra':row.kind==='shipment'?'envío':'venta'}</Badge></button>})}</>
 }

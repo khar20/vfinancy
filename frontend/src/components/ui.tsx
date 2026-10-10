@@ -6,12 +6,13 @@ import { cx } from '../lib/format'
 import { formatMoney, sanitizeMoney, sanitizeTc, tcFromText, tcText, type Currency } from '../lib/money'
 import { useStore } from '../data/store'
 import { api } from '../data/api'
-import type { StatusView } from '../data/status'
+import type { StatusView, Tone } from '../data/status'
 
-export function Badge({ state, children }: { state?: StatusView | null; children?: ReactNode }) {
+export function Badge({ state, tone, children }: { state?: StatusView | null; tone?: Tone; children?: ReactNode }) {
   if (!state && !children) return null
-  return <span className={cx('badge', state && `badge--${state.tone}`)}>{children ?? state?.label}</span>
+  return <span className={cx('badge', (state?.tone ?? tone) && `badge--${state?.tone ?? tone}`)}>{children ?? state?.label}</span>
 }
+export function StatusBadge({ state }: { state?: StatusView | null }) { return <Badge state={state} /> }
 export function Money({ cents, currency, original, documentCurrency, tc, className }: { cents: number; currency?: Currency; original?: number; documentCurrency?: Currency; tc?: number; className?: string }) {
   const display = useStore((s) => s.currency)
   const supplied = currency ?? display
@@ -34,8 +35,8 @@ export function TcField({ value, onChange }: { value: string; onChange: (value: 
   const fallback = useStore((s) => s.settings.tc_fallback ?? '37500')
   return <div className="tcinput"><div className="tcinput__row"><input className="input input--tabs tcinput__field" inputMode="decimal" aria-label="TC (S/ por $)" value={value} onChange={(event) => onChange(sanitizeTc(event.target.value))} /><button className="btn btn--sm" type="button" disabled={loading} onClick={async () => { setLoading(true); setError(''); try { const rate = await api.Settings.FetchTC(); onChange(tcText(rate)) } catch { setError('No se pudo consultar el TC'); if (!value) onChange(tcText(Number(fallback))) } finally { setLoading(false) } }}>{loading ? 'Consultando…' : 'Consultar'}</button></div>{error && <small className="field__error">{error}</small>}</div>
 }
-export function Seg<T extends string>({ options, value, onChange, label }: { options: Array<{ value: T; label: string }>; value: T; onChange: (value: T) => void; label?: string }) {
-  return <div className="seg" role="group" aria-label={label}>{options.map((item) => <button key={item.value} type="button" aria-pressed={value === item.value} className={cx('seg__opt', value === item.value && 'is-active')} onClick={() => onChange(item.value)}>{item.label}</button>)}</div>
+export function Seg<T extends string>({ options, value, onChange, label, small = false }: { options: Array<{ value: T; label: string }>; value: T; onChange: (value: T) => void; label?: string; small?: boolean }) {
+  return <div className={cx('seg', small && 'seg--sm')} role="group" aria-label={label}>{options.map((item) => <button key={item.value} type="button" aria-pressed={value === item.value} className={cx('seg__opt', value === item.value && 'is-active')} onClick={() => onChange(item.value)}>{item.label}</button>)}</div>
 }
 export function ViewHead({ title, subtitle, actions }: { title: string; subtitle?: string; actions?: ReactNode }) { return <header className="viewhead"><div><h1 className="viewhead__title">{title}</h1>{subtitle && <p className="viewhead__sub">{subtitle}</p>}</div>{actions && <div className="viewhead__actions">{actions}</div>}</header> }
 export function Card({ title, subtitle, children, className = '', flush = false }: { title: string; subtitle?: string; children: ReactNode; className?: string; flush?: boolean }) { return <section className={cx('card', className)}><header className="card__head"><div><h3 className="card__title">{title}</h3>{subtitle && <p className="card__sub">{subtitle}</p>}</div></header><div className={cx('card__body', flush && 'card__body--flush')}>{children}</div></section> }

@@ -147,18 +147,18 @@ func (s *DashboardService) GetDashboard(period, anchor, displayCurrency string) 
 		return nil, e
 	}
 	overdueSales := []map[string]any{}
-	lateRows, e := db.Query(`SELECT id,code,date FROM sales WHERE voided_at IS NULL AND date<? ORDER BY date`, cutoff)
+	lateRows, e := db.Query(`SELECT id,code,date,kind FROM sales WHERE voided_at IS NULL AND date<? ORDER BY date`, cutoff)
 	if e != nil {
 		return nil, e
 	}
 	type lateSale struct {
-		id         int64
-		code, date string
+		id               int64
+		code, date, kind string
 	}
 	late := []lateSale{}
 	for lateRows.Next() {
 		var item lateSale
-		if e = lateRows.Scan(&item.id, &item.code, &item.date); e != nil {
+		if e = lateRows.Scan(&item.id, &item.code, &item.date, &item.kind); e != nil {
 			lateRows.Close()
 			return nil, e
 		}
@@ -173,7 +173,7 @@ func (s *DashboardService) GetDashboard(period, anchor, displayCurrency string) 
 			return nil, err
 		}
 		if summary.BalanceCents > 0 {
-			overdueSales = append(overdueSales, map[string]any{"id": item.id, "code": item.code, "date": item.date, "balanceCents": summary.BalanceCents, "currency": summary.Currency})
+			overdueSales = append(overdueSales, map[string]any{"id": item.id, "code": item.code, "date": item.date, "kind": item.kind, "balanceCents": summary.BalanceCents, "currency": summary.Currency})
 		}
 	}
 	for _, m := range byMonth {
@@ -208,7 +208,7 @@ func (s *DashboardService) auctions(db *sql.DB) ([]map[string]any, error) {
 	if db.QueryRow(`SELECT value FROM settings WHERE key='lot_countdown_days'`).Scan(&text) == nil {
 		_, _ = fmt.Sscanf(text, "%d", &global)
 	}
-	rows, e := db.Query(`SELECT ls.id,l.code,l.product_id,p.name,ls.available,l.countdown_days,l.countdown_start FROM lot_stock ls JOIN lots l ON l.id=ls.id JOIN products p ON p.id=l.product_id WHERE ls.available>0 ORDER BY l.entry_date`)
+	rows, e := db.Query(`SELECT ls.id,l.code,l.product_id,p.name,ls.available,l.countdown_days,l.countdown_start,l.entry_date FROM lot_stock ls JOIN lots l ON l.id=ls.id JOIN products p ON p.id=l.product_id WHERE ls.available>0 ORDER BY l.entry_date`)
 	if e != nil {
 		return nil, e
 	}
@@ -217,9 +217,9 @@ func (s *DashboardService) auctions(db *sql.DB) ([]map[string]any, error) {
 	todayDate, _ := time.Parse("2006-01-02", today())
 	for rows.Next() {
 		var id, product, available int64
-		var code, name, start string
+		var code, name, start, entryDate string
 		var days sql.NullInt64
-		if e = rows.Scan(&id, &code, &product, &name, &available, &days, &start); e != nil {
+		if e = rows.Scan(&id, &code, &product, &name, &available, &days, &start, &entryDate); e != nil {
 			return nil, e
 		}
 		count := global
@@ -235,7 +235,7 @@ func (s *DashboardService) auctions(db *sql.DB) ([]map[string]any, error) {
 		}
 		auction := !todayDate.Before(startDate.AddDate(0, 0, count))
 		if auction {
-			out = append(out, map[string]any{"id": id, "code": code, "productId": product, "product": name, "available": available, "days": count, "daysInAuction": int(todayDate.Sub(startDate.AddDate(0, 0, count)).Hours() / 24)})
+			out = append(out, map[string]any{"id": id, "code": code, "productId": product, "product": name, "available": available, "entryDate": entryDate, "days": count, "daysInAuction": int(todayDate.Sub(startDate.AddDate(0, 0, count)).Hours() / 24)})
 		}
 	}
 	return out, rows.Err()
