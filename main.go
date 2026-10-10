@@ -11,29 +11,21 @@ import (
 //go:embed all:frontend/dist
 var assets embed.FS
 
-//go:embed all:backend/migrations/sqlite
-var sqliteMigrations embed.FS
-
-//go:embed all:backend/migrations/postgres
-var postgresMigrations embed.FS
-
 func main() {
 	app := NewApp()
 
 	err := wails.Run(&options.App{
-		Title:  app.cfg.App.WindowTitle,
-		Width:  app.cfg.App.Width,
-		Height: app.cfg.App.Height,
+		Title:    "vfinancy",
+		Width:    1024,
+		Height:   768,
+		MinWidth: 480,
 		AssetServer: &assetserver.Options{
 			Assets: assets,
 		},
 		BackgroundColour: &options.RGBA{R: 27, G: 38, B: 54, A: 1},
 		OnStartup:        app.startup,
 		OnShutdown:       app.shutdown,
-		Bind: []interface{}{
-			app,
-			app.bindings,
-		},
+		Bind:             app.backend.Bindings(),
 	})
 
 	if err != nil {
